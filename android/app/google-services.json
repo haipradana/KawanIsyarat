@@ -12,7 +12,20 @@
           "package_name": "com.kawanisyarat.kawan_isyarat"
         }
       },
-      "oauth_client": [],
+      "oauth_client": [
+        {
+          "client_id": "277661558010-1r94m2cl6v2vbeai4do4041qdgh3h7tg.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.kawanisyarat.kawan_isyarat",
+            "certificate_hash": "79e3014da432b5db32888c15e437b36131f914ac"
+          }
+        },
+        {
+          "client_id": "277661558010-m37j5e6ggkgtfppkntifl1qddpsngrch.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
       "api_key": [
         {
           "current_key": "AIzaSyCPyS_l95gRC8xaeDT9pus3dmG5S8LYlUI"
@@ -20,7 +33,12 @@
       ],
       "services": {
         "appinvite_service": {
-          "other_platform_oauth_client": []
+          "other_platform_oauth_client": [
+            {
+              "client_id": "277661558010-m37j5e6ggkgtfppkntifl1qddpsngrch.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
         }
       }
     }
