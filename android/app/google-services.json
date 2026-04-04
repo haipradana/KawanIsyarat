@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "277661558010",
+    "project_id": "kawanisyarat",
+    "storage_bucket": "kawanisyarat.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:277661558010:android:e0809c9aae135020e75543",
+        "android_client_info": {
+          "package_name": "com.kawanisyarat.kawan_isyarat"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCPyS_l95gRC8xaeDT9pus3dmG5S8LYlUI"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

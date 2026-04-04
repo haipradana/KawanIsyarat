@@ -1,0 +1,33 @@
+name: kawan_isyarat
+description: KawanIsyarat — Jembatan Komunikasi Inklusif. An offline-first communication bridge between Deaf and Hearing users in Indonesia using BISINDO sign language.
+publish_to: 'none'
+
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.2.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  cupertino_icons: ^1.0.8
+  flutter_riverpod: ^2.5.1
+  go_router: ^14.2.0
+  google_fonts: ^6.2.1
+  hive: ^2.2.3
+  hive_flutter: ^1.1.0
+  flutter_tts: ^4.0.2
+  flutter_animate: ^4.5.0
+  shimmer: ^3.0.0
+  intl: ^0.19.0
+  google_sign_in: ^7.2.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0
+  hive_generator: ^2.0.1
+  build_runner: ^2.4.9
+
+flutter:
+  uses-material-design: true
