@@ -35,22 +35,14 @@ class KawanAppBar extends StatelessWidget implements PreferredSizeWidget {
           ? Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Container(
-                  width: 28,
-                  height: 28,
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      colors: [AppColors.primaryDark, AppColors.primaryContainer],
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                    ),
+                SizedBox(
+                  width: 32,
+                  height: 32,
+                  child: ClipRRect(
                     borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Center(
-                    child: Icon(
-                      Icons.sign_language_rounded,
-                      size: 16,
-                      color: Colors.white,
+                    child: Image.asset(
+                      'assets/images/logo_kawanisyarat.png',
+                      fit: BoxFit.cover,
                     ),
                   ),
                 ),

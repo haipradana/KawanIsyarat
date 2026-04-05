@@ -417,29 +417,26 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.center,
         children: [
-          Container(
-            width: 56,
-            height: 56,
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                colors: [AppColors.primaryDark, AppColors.primaryContainer],
-              ),
+          SizedBox(
+            height: 210,
+            child: ClipRRect(
               borderRadius: BorderRadius.circular(16),
-            ),
-            child: Center(
-              child: Icon(Icons.sign_language_rounded, size: 28, color: Colors.white),
-            ),
-          ),
-          SizedBox(height: 16),
-          Text(
-            'KawanIsyarat',
-            style: GoogleFonts.plusJakartaSans(
-              fontSize: 20,
-              fontWeight: FontWeight.w700,
-              color: AppColors.textPrimary,
+              child: Image.asset(
+                'assets/images/logo_full_kawanisyarat.png',
+                fit: BoxFit.contain,
+              ),
             ),
           ),
-          SizedBox(height: 4),
+          // SizedBox(height: 16),
+          // Text(
+          //   'KawanIsyarat',
+          //   style: GoogleFonts.plusJakartaSans(
+          //     fontSize: 20,
+          //     fontWeight: FontWeight.w700,
+          //     color: AppColors.textPrimary,
+          //   ),
+          // ),
+          SizedBox(height: 2),
           Text(
             'Versi 1.0.0',
             style: GoogleFonts.beVietnamPro(
