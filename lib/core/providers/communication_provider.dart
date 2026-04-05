@@ -1,6 +1,8 @@
 import 'dart:async';
+import 'dart:ui';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../services/gesture_service.dart';
+import '../services/mediapipe_service.dart';
 import '../services/gemma_service.dart';
 import '../services/stt_service.dart';
 import '../services/tts_service.dart';
@@ -14,12 +16,16 @@ class DeafToHearingState {
   final String refinedSentence;
   final bool isCapturing;
   final bool isProcessing;
+  final List<Offset> skeletonPoints;
+  final String? errorMessage;
 
   const DeafToHearingState({
     this.currentGloss = const [],
     this.refinedSentence = '',
     this.isCapturing = false,
     this.isProcessing = false,
+    this.skeletonPoints = const [],
+    this.errorMessage,
   });
 
   DeafToHearingState copyWith({
@@ -27,12 +33,16 @@ class DeafToHearingState {
     String? refinedSentence,
     bool? isCapturing,
     bool? isProcessing,
+    List<Offset>? skeletonPoints,
+    String? errorMessage,
   }) {
     return DeafToHearingState(
       currentGloss: currentGloss ?? this.currentGloss,
       refinedSentence: refinedSentence ?? this.refinedSentence,
       isCapturing: isCapturing ?? this.isCapturing,
       isProcessing: isProcessing ?? this.isProcessing,
+      skeletonPoints: skeletonPoints ?? this.skeletonPoints,
+      errorMessage: errorMessage,
     );
   }
 }
@@ -46,23 +56,71 @@ class DeafToHearingNotifier extends StateNotifier<DeafToHearingState> {
   DeafToHearingNotifier() : super(const DeafToHearingState());
 
   final _gestureService = GestureService();
+  final _mediaPipe = MediaPipeService();
   final _gemmaService = GemmaService();
   final _ttsService = TtsService();
   StreamSubscription<List<String>>? _glossSubscription;
 
+  /// Called every camera frame while capturing.
+  /// Extracts keypoints via MediaPipe, feeds to LSTM buffer,
+  /// and updates skeleton overlay.
+  void onCameraFrame(dynamic cameraImage, double previewW, double previewH) {
+    if (!state.isCapturing) return;
+
+    final keypoints = _mediaPipe.extractKeypoints(cameraImage);
+    _gestureService.addFrame(keypoints);
+
+    // Update skeleton overlay for UI
+    final skeleton = _mediaPipe.getHandLandmarkPositions(
+      keypoints,
+      Size(previewW, previewH),
+    );
+    if (mounted) {
+      state = state.copyWith(skeletonPoints: skeleton);
+    }
+  }
+
   void startCapture() {
-    state = state.copyWith(isCapturing: true, currentGloss: [], refinedSentence: '');
+    state = state.copyWith(
+      isCapturing: true,
+      currentGloss: [],
+      refinedSentence: '',
+      errorMessage: null,
+    );
+
     _gestureService.startGestureCapture();
+
+    // Listen to mock gloss stream (fallback when LSTM not loaded)
     _glossSubscription = _gestureService.glossStream.listen((gloss) {
       state = state.copyWith(currentGloss: gloss);
       _refineCurrentGloss(gloss);
     });
   }
 
-  void stopCapture() {
+  /// Stop capture and run LSTM prediction if model is loaded.
+  Future<void> stopCapture() async {
     _gestureService.stopGestureCapture();
     _glossSubscription?.cancel();
-    state = state.copyWith(isCapturing: false);
+
+    if (_gestureService.isModelLoaded) {
+      // Real LSTM path
+      state = state.copyWith(isCapturing: false, isProcessing: true);
+
+      final result = _gestureService.predict();
+      if (result != null) {
+        final glossList = [result.word];
+        state = state.copyWith(currentGloss: glossList);
+        await _refineCurrentGloss(glossList);
+      } else {
+        state = state.copyWith(
+          isProcessing: false,
+          errorMessage: 'Isyarat kurang jelas. Coba lagi.',
+        );
+      }
+    } else {
+      // Mock mode — just stop
+      state = state.copyWith(isCapturing: false);
+    }
   }
 
   Future<void> _refineCurrentGloss(List<String> gloss) async {
@@ -142,11 +200,9 @@ class HearingToDeafNotifier extends StateNotifier<HearingToDeafState> {
   Future<void> stopRecording() async {
     state = state.copyWith(isRecording: false, isProcessing: true);
 
-    // Simulate transcription
     final transcription = await _sttService.transcribe(null);
     state = state.copyWith(rawTranscription: transcription);
 
-    // Simulate summarization
     final summary = await _gemmaService.summarizeSpeech(transcription);
     if (mounted) {
       state = state.copyWith(

@@ -1,12 +1,11 @@
-import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import '../../../app/constants.dart';
 import '../../../shared/widgets/kawan_app_bar.dart';
-
 import '../../../shared/widgets/bottom_nav_bar.dart';
+import '../../../shared/widgets/skeleton_overlay_painter.dart';
 import '../../../core/providers/communication_provider.dart';
 import '../widgets/gloss_chip_row.dart';
 import '../widgets/ai_sentence_card.dart';
@@ -39,11 +38,48 @@ class _CommDeafToHearingScreenState
         child: Column(
           children: [
             SizedBox(height: AppSpacing.lg),
-            // Camera viewfinder
-            _buildCameraView(state.isCapturing)
+            // Camera viewfinder with skeleton overlay
+            _buildCameraView(state)
                 .animate()
                 .fadeIn(duration: 400.ms),
             SizedBox(height: AppSpacing.xl),
+            // Error message
+            if (state.errorMessage != null)
+              Container(
+                width: double.infinity,
+                padding: EdgeInsets.symmetric(
+                  horizontal: AppSpacing.lg,
+                  vertical: AppSpacing.md,
+                ),
+                margin: EdgeInsets.only(bottom: AppSpacing.md),
+                decoration: BoxDecoration(
+                  color: AppColors.error.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(AppRadius.md),
+                  border: Border.all(
+                    color: AppColors.error.withOpacity(0.3),
+                  ),
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.warning_rounded,
+                        color: AppColors.error, size: 18),
+                    SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        state.errorMessage!,
+                        style: GoogleFonts.beVietnamPro(
+                          fontSize: 13,
+                          color: AppColors.error,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ).animate().fadeIn(duration: 300.ms).shake(
+                    duration: 400.ms,
+                    hz: 3,
+                    offset: Offset(2, 0),
+                  ),
             // Gloss chips
             GlossChipRow(glossTokens: state.currentGloss),
             SizedBox(height: AppSpacing.lg),
@@ -76,7 +112,7 @@ class _CommDeafToHearingScreenState
     );
   }
 
-  Widget _buildCameraView(bool isActive) {
+  Widget _buildCameraView(DeafToHearingState state) {
     return ClipRRect(
       borderRadius: BorderRadius.circular(AppRadius.lg),
       child: AspectRatio(
@@ -88,7 +124,7 @@ class _CommDeafToHearingScreenState
           ),
           child: Stack(
             children: [
-              // Simulated camera background
+              // Camera background (simulated)
               Container(
                 decoration: BoxDecoration(
                   gradient: RadialGradient(
@@ -118,13 +154,15 @@ class _CommDeafToHearingScreenState
                         width: 6,
                         height: 6,
                         decoration: BoxDecoration(
-                          color: isActive ? AppColors.success : Colors.grey,
+                          color: state.isCapturing
+                              ? AppColors.success
+                              : Colors.grey,
                           shape: BoxShape.circle,
                         ),
                       ),
                       SizedBox(width: 6),
                       Text(
-                        isActive ? 'LIVE' : 'KAMERA',
+                        state.isCapturing ? 'LIVE' : 'KAMERA',
                         style: GoogleFonts.plusJakartaSans(
                           fontSize: 10,
                           fontWeight: FontWeight.w700,
@@ -136,14 +174,58 @@ class _CommDeafToHearingScreenState
                   ),
                 ),
               ),
-              // Mock hand landmarks
-              if (isActive)
-                CustomPaint(
-                  size: Size.infinite,
-                  painter: _HandLandmarkPainter(),
+              // Skeleton overlay — real or mock hand landmarks
+              if (state.isCapturing)
+                LayoutBuilder(
+                  builder: (context, constraints) {
+                    // Use skeleton from provider if available, fallback to mock
+                    final landmarks = state.skeletonPoints.isNotEmpty
+                        ? state.skeletonPoints
+                        : _getMockLandmarks(
+                            constraints.maxWidth, constraints.maxHeight);
+                    return CustomPaint(
+                      size: Size(constraints.maxWidth, constraints.maxHeight),
+                      painter: SkeletonOverlayPainter(
+                        landmarks: landmarks,
+                        isActive: state.isCapturing,
+                      ),
+                    );
+                  },
+                ),
+              // Processing indicator
+              if (state.isProcessing)
+                Center(
+                  child: Container(
+                    padding: EdgeInsets.all(20),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withOpacity(0.6),
+                      borderRadius: BorderRadius.circular(AppRadius.lg),
+                    ),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        SizedBox(
+                          width: 32,
+                          height: 32,
+                          child: CircularProgressIndicator(
+                            color: AppColors.primary,
+                            strokeWidth: 3,
+                          ),
+                        ),
+                        SizedBox(height: 12),
+                        Text(
+                          'AI sedang memproses...',
+                          style: GoogleFonts.beVietnamPro(
+                            fontSize: 12,
+                            color: Colors.white70,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
                 ),
               // Center hint when inactive
-              if (!isActive)
+              if (!state.isCapturing && !state.isProcessing)
                 Center(
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
@@ -168,6 +250,43 @@ class _CommDeafToHearingScreenState
     );
   }
 
+  /// Fallback mock landmarks when provider doesn't have skeleton data.
+  List<Offset> _getMockLandmarks(double w, double h) {
+    final centerX = w * 0.5;
+    final centerY = h * 0.45;
+    final spread = w * 0.12;
+
+    // Generate a simple hand shape
+    return [
+      Offset(centerX, centerY + h * 0.12), // wrist
+      // Thumb
+      Offset(centerX - spread * 1.2, centerY + h * 0.05),
+      Offset(centerX - spread * 1.5, centerY - h * 0.02),
+      Offset(centerX - spread * 1.7, centerY - h * 0.06),
+      Offset(centerX - spread * 1.8, centerY - h * 0.10),
+      // Index
+      Offset(centerX - spread * 0.5, centerY),
+      Offset(centerX - spread * 0.5, centerY - h * 0.08),
+      Offset(centerX - spread * 0.5, centerY - h * 0.14),
+      Offset(centerX - spread * 0.5, centerY - h * 0.18),
+      // Middle
+      Offset(centerX + spread * 0.1, centerY - h * 0.01),
+      Offset(centerX + spread * 0.1, centerY - h * 0.10),
+      Offset(centerX + spread * 0.1, centerY - h * 0.16),
+      Offset(centerX + spread * 0.1, centerY - h * 0.20),
+      // Ring
+      Offset(centerX + spread * 0.7, centerY),
+      Offset(centerX + spread * 0.7, centerY - h * 0.07),
+      Offset(centerX + spread * 0.7, centerY - h * 0.12),
+      Offset(centerX + spread * 0.7, centerY - h * 0.16),
+      // Pinky
+      Offset(centerX + spread * 1.3, centerY + h * 0.02),
+      Offset(centerX + spread * 1.3, centerY - h * 0.04),
+      Offset(centerX + spread * 1.3, centerY - h * 0.08),
+      Offset(centerX + spread * 1.3, centerY - h * 0.11),
+    ];
+  }
+
   void _handleNavTap(BuildContext context, int index) {
     switch (index) {
       case 0:
@@ -184,86 +303,4 @@ class _CommDeafToHearingScreenState
         break;
     }
   }
-}
-
-class _HandLandmarkPainter extends CustomPainter {
-  final Random _random = Random(42); // Fixed seed for consistent rendering
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final paint = Paint()
-      ..color = AppColors.success
-      ..style = PaintingStyle.fill;
-
-    final linePaint = Paint()
-      ..color = AppColors.success.withOpacity(0.4)
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 2;
-
-    final centerX = size.width * 0.5;
-    final centerY = size.height * 0.45;
-
-    // Generate 21 landmarks in a rough hand pattern
-    final landmarks = <Offset>[];
-
-    // Wrist
-    landmarks.add(Offset(centerX, centerY + size.height * 0.15));
-
-    // Palm points (4)
-    for (int i = 0; i < 4; i++) {
-      landmarks.add(Offset(
-        centerX + (i - 1.5) * size.width * 0.08,
-        centerY + size.height * 0.05,
-      ));
-    }
-
-    // Fingers (4 joints each, 4 fingers + thumb = 16 points)
-    for (int finger = 0; finger < 4; finger++) {
-      for (int joint = 0; joint < 4; joint++) {
-        landmarks.add(Offset(
-          centerX + (finger - 1.5) * size.width * 0.09 +
-              _random.nextDouble() * 4 - 2,
-          centerY - joint * size.height * 0.08 -
-              size.height * 0.02 +
-              _random.nextDouble() * 4 - 2,
-        ));
-      }
-    }
-
-    // Draw connections
-    for (int i = 0; i < landmarks.length - 1; i++) {
-      if (i < landmarks.length - 1) {
-        canvas.drawLine(landmarks[i], landmarks[i + 1], linePaint);
-      }
-    }
-
-    // Draw finger connections to palm
-    for (int i = 1; i < 5 && i < landmarks.length; i++) {
-      final fingerStart = 5 + (i - 1) * 4;
-      if (fingerStart < landmarks.length) {
-        canvas.drawLine(landmarks[i], landmarks[fingerStart], linePaint);
-      }
-    }
-
-    // Draw landmarks as dots
-    for (final point in landmarks) {
-      // Outer glow
-      canvas.drawCircle(
-        point,
-        6,
-        Paint()..color = AppColors.success.withOpacity(0.3),
-      );
-      // Inner dot
-      canvas.drawCircle(point, 4, paint);
-      // Center highlight
-      canvas.drawCircle(
-        point,
-        2,
-        Paint()..color = Colors.white.withOpacity(0.8),
-      );
-    }
-  }
-
-  @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
