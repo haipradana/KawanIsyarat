@@ -1,59 +1,177 @@
-/// Stub service that simulates Gemma LLM inference.
-/// Takes gloss tokens and returns refined Bahasa Indonesia sentences.
+import '../ffi/cactus_wrapper.dart';
+import 'model_manager.dart';
+
+/// Real Cactus-powered Gemma LLM service for on-device inference.
+/// Handles gloss→sentence refinement, speech summarization, and gesture feedback.
 class GemmaService {
   static final GemmaService _instance = GemmaService._internal();
   factory GemmaService() => _instance;
   GemmaService._internal();
 
-  static const Map<String, String> _glossMap = {
-    'NAMA_SAYA_APA': 'Siapa nama kamu?',
-    'TERIMA_KASIH': 'Terima kasih banyak!',
-    'TOLONG_BANTU': 'Tolong bantu saya.',
-    'SAYA_SENANG': 'Saya senang bertemu denganmu!',
-    'HALO_APA_KABAR': 'Halo, apa kabar?',
-    'NAMA': 'Nama...',
-    'NAMA_SAYA': 'Nama saya...',
-    'HALO': 'Halo!',
-    'HALO_APA': 'Halo, apa...',
-    'TERIMA': 'Terima...',
-    'TOLONG': 'Tolong...',
-    'SAYA': 'Saya...',
-  };
+  CactusModel? _model;
+  bool _isLoaded = false;
+  bool _isLoading = false;
 
-  static const String _defaultResponse = 'Maaf, saya tidak mengerti. Bisa diulang?';
+  bool get isLoaded => _isLoaded;
+  bool get isLoading => _isLoading;
 
-  /// Simulates Gemma inference to refine gloss tokens into a natural sentence.
-  /// Waits 800ms to simulate model inference time.
-  Future<String> refineGloss(List<String> gloss) async {
-    await Future.delayed(Duration(milliseconds: 800));
+  static const _systemPrompt = '''
+Kamu adalah asisten terjemahan BISINDO KawanIsyarat.
+Tugasmu HANYA mengubah kata-kata gloss isyarat menjadi kalimat Bahasa Indonesia natural.
+Gloss dipisahkan tanda |. Jawab HANYA dengan kalimat hasil, tanpa penjelasan.
 
-    if (gloss.isEmpty) return '';
+Contoh:
+NAMA | SAYA | APA → Siapa nama kamu?
+TERIMA KASIH | BANTU → Terima kasih sudah membantu.
+MAKAN | BELUM | SAYA → Saya belum makan.
+HALO → Halo!
+MAAF → Maaf.
+''';
 
-    final key = gloss.join('_');
-    return _glossMap[key] ?? _defaultResponse;
+  /// Initialize the LLM model.
+  /// Requires model weights to be already downloaded via ModelManager.
+  Future<void> initialize({void Function(double)? onProgress}) async {
+    if (_isLoaded || _isLoading) return;
+    _isLoading = true;
+
+    try {
+      onProgress?.call(0.1);
+
+      final modelManager = ModelManager();
+      final modelPath = await modelManager.getModelPath(ModelType.gemmaLLM);
+
+      onProgress?.call(0.3);
+
+      _model = CactusModel();
+      await _model!.load(modelPath);
+
+      onProgress?.call(1.0);
+      _isLoaded = true;
+    } catch (e) {
+      _isLoading = false;
+      _model = null;
+      rethrow;
+    }
+
+    _isLoading = false;
   }
 
-  /// Simulates Gemma inference to summarize raw speech text.
-  /// Waits 1200ms to simulate model inference time.
+  /// Gloss list → natural Bahasa Indonesia sentence.
+  /// ["NAMA", "SAYA", "APA"] → "Siapa nama kamu?"
+  Future<String> refineGloss(List<String> glossList) async {
+    if (glossList.isEmpty) return '';
+
+    // SMART ROUTING — skip LLM for single simple words
+    if (glossList.length == 1) {
+      final direct = _directMap[glossList.first.toUpperCase()];
+      if (direct != null) return direct;
+    }
+
+    // If model not loaded, fallback to simple join
+    if (!_isLoaded || _model == null) return glossList.join(' ');
+
+    final glossStr = glossList.join(' | ');
+
+    try {
+      final response = await _model!.complete(
+        [
+          ChatMessage(role: 'system', content: _systemPrompt),
+          ChatMessage(role: 'user', content: glossStr),
+        ],
+        maxTokens: 80,
+        temperature: 0.3,
+        stopSequences: ['\n', 'Input:', '→'],
+      );
+
+      if (response.success && response.text.isNotEmpty) {
+        return response.text.trim();
+      }
+      return glossList.join(' ');
+    } catch (e) {
+      // Fallback to simple join on model error
+      return glossList.join(' ');
+    }
+  }
+
+  /// Summarize long STT output into a short sentence for Deaf users.
   Future<String> summarizeSpeech(String rawText) async {
-    await Future.delayed(Duration(milliseconds: 1200));
+    if (rawText.isEmpty) return '';
+    if (!_isLoaded || _model == null) return rawText;
+    if (rawText.length < 50) return rawText; // Already short, skip LLM
 
-    // Simple mock summarization
-    if (rawText.toLowerCase().contains('stasiun')) {
-      return 'Halo, Budi ingin tahu jalan ke stasiun.';
-    }
-    if (rawText.toLowerCase().contains('rumah sakit')) {
-      return 'Dia sedang mencari rumah sakit terdekat.';
-    }
-    if (rawText.toLowerCase().contains('terima kasih')) {
-      return 'Dia mengucapkan terima kasih.';
-    }
+    try {
+      final response = await _model!.complete(
+        [
+          ChatMessage(role: 'system', content: _systemPrompt),
+          ChatMessage(
+            role: 'user',
+            content: 'Ringkas menjadi 1 kalimat singkat: $rawText',
+          ),
+        ],
+        maxTokens: 60,
+        temperature: 0.2,
+      );
 
-    // Default: take first 10 words
-    final words = rawText.split(' ');
-    if (words.length > 10) {
-      return '${words.take(10).join(' ')}...';
+      if (response.success && response.text.isNotEmpty) {
+        return response.text.trim();
+      }
+      return rawText;
+    } catch (e) {
+      return rawText;
     }
-    return rawText;
+  }
+
+  /// Corrective feedback for education/learning mode.
+  Future<String> getGestureFeedback({
+    required String targetWord,
+    required String detectedIssue,
+  }) async {
+    if (!_isLoaded || _model == null) return 'Coba lagi ya!';
+
+    try {
+      final response = await _model!.complete(
+        [
+          ChatMessage(
+            role: 'system',
+            content:
+                'Kamu guru BISINDO yang sabar. Beri feedback singkat 1 kalimat, encouraging.',
+          ),
+          ChatMessage(
+            role: 'user',
+            content: 'Kata: $targetWord. Masalah: $detectedIssue',
+          ),
+        ],
+        maxTokens: 50,
+        temperature: 0.5,
+      );
+
+      if (response.success && response.text.isNotEmpty) {
+        return response.text.trim();
+      }
+      return 'Hampir benar, coba lagi!';
+    } catch (e) {
+      return 'Hampir benar, coba lagi!';
+    }
+  }
+
+  // Direct map for single words — bypass LLM, <1ms
+  static const _directMap = {
+    'YA': 'Ya.',
+    'TIDAK': 'Tidak.',
+    'HALO': 'Halo!',
+    'MAAF': 'Maaf.',
+    'TERIMA KASIH': 'Terima kasih.',
+    'TOLONG': 'Tolong.',
+    'OKE': 'Oke.',
+    'BAGUS': 'Bagus!',
+    'NAMA': 'Nama...',
+    'SAYA': 'Saya...',
+    'TERIMA': 'Terima...',
+  };
+
+  Future<void> dispose() async {
+    await _model?.dispose();
+    _model = null;
+    _isLoaded = false;
   }
 }

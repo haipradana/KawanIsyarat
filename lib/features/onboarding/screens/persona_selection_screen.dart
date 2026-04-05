@@ -131,6 +131,6 @@ class PersonaSelectionScreen extends ConsumerWidget {
   void _selectPersona(
       BuildContext context, WidgetRef ref, UserPersona persona) {
     ref.read(personaProvider.notifier).setPersona(persona);
-    context.go('/home');
+    context.go('/ai-init');
   }
 }

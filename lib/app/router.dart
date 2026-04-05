@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import '../core/providers/persona_provider.dart';
 import '../features/onboarding/screens/login_screen.dart';
 import '../features/onboarding/screens/persona_selection_screen.dart';
+import '../features/onboarding/screens/ai_init_screen.dart';
 import '../features/home/screens/home_dashboard_screen.dart';
 import '../features/communication/screens/comm_direction_picker_screen.dart';
 import '../features/communication/screens/comm_deaf_to_hearing_screen.dart';
@@ -54,6 +55,16 @@ final routerProvider = Provider<GoRouter>((ref) {
         pageBuilder: (context, state) => CustomTransitionPage(
           key: state.pageKey,
           child: HomeDashboardScreen(),
+          transitionsBuilder: (context, animation, secondaryAnimation, child) {
+            return FadeTransition(opacity: animation, child: child);
+          },
+        ),
+      ),
+      GoRoute(
+        path: '/ai-init',
+        pageBuilder: (context, state) => CustomTransitionPage(
+          key: state.pageKey,
+          child: AIInitScreen(),
           transitionsBuilder: (context, animation, secondaryAnimation, child) {
             return FadeTransition(opacity: animation, child: child);
           },

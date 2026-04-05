@@ -1,6 +1,8 @@
 include: package:flutter_lints/flutter.yaml
 
 analyzer:
+  exclude:
+    - cactus-main/**
   errors:
     deprecated_member_use: ignore
 

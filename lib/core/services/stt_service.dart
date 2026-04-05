@@ -1,29 +1,84 @@
 import 'dart:typed_data';
+import '../ffi/cactus_wrapper.dart';
+import 'model_manager.dart';
 
-/// Stub service that simulates Whisper STT (Speech-to-Text).
-/// Returns mock transcription strings.
+/// Real Cactus-powered Whisper STT (Speech-to-Text) service.
+/// Uses on-device Whisper Tiny ID model for Indonesian speech transcription.
 class SttService {
   static final SttService _instance = SttService._internal();
   factory SttService() => _instance;
   SttService._internal();
 
-  static const List<String> _mockTranscriptions = [
-    'Halo apa kabar nama saya Budi, saya sedang mencari jalan menuju stasiun terdekat dari sini',
-    'Selamat pagi, apakah Anda bisa membantu saya menemukan toko buku terdekat',
-    'Permisi, saya ingin bertanya tentang jadwal kereta api sore ini',
-    'Terima kasih banyak atas bantuan Anda, saya sangat menghargainya',
-    'Maaf mengganggu, bisakah Anda menunjukkan arah ke rumah sakit',
-  ];
+  CactusTranscriber? _transcriber;
+  bool _isLoaded = false;
+  bool _isLoading = false;
 
-  int _currentIndex = 0;
+  bool get isLoaded => _isLoaded;
+  bool get isLoading => _isLoading;
 
-  /// Simulates Whisper STT transcription.
-  /// Waits 600ms to simulate inference time.
-  /// [audioData] is ignored in the stub.
+  /// Initialize the STT model.
+  /// Requires model weights to be already downloaded via ModelManager.
+  Future<void> initialize({void Function(double)? onProgress}) async {
+    if (_isLoaded || _isLoading) return;
+    _isLoading = true;
+
+    try {
+      onProgress?.call(0.1);
+
+      final modelManager = ModelManager();
+      final modelPath = await modelManager.getModelPath(ModelType.whisperSTT);
+
+      onProgress?.call(0.3);
+
+      _transcriber = CactusTranscriber();
+      await _transcriber!.load(modelPath);
+
+      onProgress?.call(1.0);
+      _isLoaded = true;
+    } catch (e) {
+      _isLoading = false;
+      _transcriber = null;
+      rethrow;
+    }
+
+    _isLoading = false;
+  }
+
+  /// Transcribe audio from raw PCM data (16-bit, 16kHz, mono).
+  /// [audioData] is the raw PCM bytes from the microphone.
   Future<String> transcribe(Uint8List? audioData) async {
-    await Future.delayed(Duration(milliseconds: 600));
-    final transcription = _mockTranscriptions[_currentIndex];
-    _currentIndex = (_currentIndex + 1) % _mockTranscriptions.length;
-    return transcription;
+    if (!_isLoaded || _transcriber == null) return '';
+    if (audioData == null || audioData.isEmpty) return '';
+
+    try {
+      final result = await _transcriber!.transcribePcm(audioData);
+      if (result.success && result.text.isNotEmpty) {
+        return result.text.trim();
+      }
+      return '';
+    } catch (e) {
+      return '';
+    }
+  }
+
+  /// Transcribe audio from a file path.
+  Future<String> transcribeFile(String audioPath) async {
+    if (!_isLoaded || _transcriber == null) return '';
+
+    try {
+      final result = await _transcriber!.transcribeFile(audioPath);
+      if (result.success && result.text.isNotEmpty) {
+        return result.text.trim();
+      }
+      return '';
+    } catch (e) {
+      return '';
+    }
+  }
+
+  Future<void> dispose() async {
+    await _transcriber?.dispose();
+    _transcriber = null;
+    _isLoaded = false;
   }
 }
