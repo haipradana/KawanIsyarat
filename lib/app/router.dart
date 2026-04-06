@@ -2,7 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../core/providers/persona_provider.dart';
-import '../features/onboarding/screens/login_screen.dart';
+import '../core/providers/auth_provider.dart';
+import '../features/onboarding/screens/landing_screen.dart';
 import '../features/onboarding/screens/persona_selection_screen.dart';
 import '../features/onboarding/screens/ai_init_screen.dart';
 import '../features/home/screens/home_dashboard_screen.dart';
@@ -19,10 +20,13 @@ import '../features/settings/screens/settings_screen.dart';
 
 final routerProvider = Provider<GoRouter>((ref) {
   final persona = ref.watch(personaProvider);
+  final auth = ref.watch(authProvider);
 
   String initialLocation;
-  if (persona == null) {
-    initialLocation = '/onboarding';
+  if (!auth.isSignedIn) {
+    initialLocation = '/';
+  } else if (persona == null) {
+    initialLocation = '/persona';
   } else {
     initialLocation = '/home';
   }
@@ -30,18 +34,20 @@ final routerProvider = Provider<GoRouter>((ref) {
   return GoRouter(
     initialLocation: initialLocation,
     routes: [
+      // Landing / Hero page (entry point)
       GoRoute(
-        path: '/login',
+        path: '/',
         pageBuilder: (context, state) => CustomTransitionPage(
           key: state.pageKey,
-          child: LoginScreen(),
+          child: LandingScreen(),
           transitionsBuilder: (context, animation, secondaryAnimation, child) {
             return FadeTransition(opacity: animation, child: child);
           },
         ),
       ),
+      // Persona selection
       GoRoute(
-        path: '/onboarding',
+        path: '/persona',
         pageBuilder: (context, state) => CustomTransitionPage(
           key: state.pageKey,
           child: PersonaSelectionScreen(),
@@ -50,21 +56,23 @@ final routerProvider = Provider<GoRouter>((ref) {
           },
         ),
       ),
-      GoRoute(
-        path: '/home',
-        pageBuilder: (context, state) => CustomTransitionPage(
-          key: state.pageKey,
-          child: HomeDashboardScreen(),
-          transitionsBuilder: (context, animation, secondaryAnimation, child) {
-            return FadeTransition(opacity: animation, child: child);
-          },
-        ),
-      ),
+      // AI model download/init
       GoRoute(
         path: '/ai-init',
         pageBuilder: (context, state) => CustomTransitionPage(
           key: state.pageKey,
           child: AIInitScreen(),
+          transitionsBuilder: (context, animation, secondaryAnimation, child) {
+            return FadeTransition(opacity: animation, child: child);
+          },
+        ),
+      ),
+      // Home dashboard
+      GoRoute(
+        path: '/home',
+        pageBuilder: (context, state) => CustomTransitionPage(
+          key: state.pageKey,
+          child: HomeDashboardScreen(),
           transitionsBuilder: (context, animation, secondaryAnimation, child) {
             return FadeTransition(opacity: animation, child: child);
           },

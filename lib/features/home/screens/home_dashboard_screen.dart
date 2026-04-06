@@ -7,6 +7,7 @@ import '../../../app/constants.dart';
 import '../../../shared/widgets/kawan_app_bar.dart';
 import '../../../shared/widgets/bottom_nav_bar.dart';
 import '../../../core/providers/persona_provider.dart';
+import '../../../core/providers/ai_providers.dart';
 import '../../../shared/models/user_persona.dart';
 import '../widgets/mode_card.dart';
 import '../widgets/word_of_day_card.dart';
@@ -25,6 +26,8 @@ class HomeDashboardScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final persona = ref.watch(personaProvider);
+    final modelsAsync = ref.watch(modelsDownloadedProvider);
+    final modelsReady = modelsAsync.valueOrNull ?? false;
 
     return Scaffold(
       backgroundColor: AppColors.background,
@@ -76,7 +79,17 @@ class HomeDashboardScreen extends ConsumerWidget {
                 color: AppColors.textSecondary,
               ),
             ).animate().fadeIn(duration: 400.ms, delay: 100.ms),
-            SizedBox(height: AppSpacing.xxl),
+            SizedBox(height: AppSpacing.xl),
+
+            // AI Status Banner
+            if (!modelsReady)
+              _buildAIBanner(context)
+                  .animate()
+                  .fadeIn(duration: 400.ms, delay: 150.ms),
+
+            if (!modelsReady)
+              SizedBox(height: AppSpacing.lg),
+
             // Communication Mode Card
             ModeCard(
               title: 'Komunikasi',
@@ -114,6 +127,71 @@ class HomeDashboardScreen extends ConsumerWidget {
       bottomNavigationBar: BottomNavBar(
         currentIndex: 0,
         onTap: (index) => _handleNavTap(context, index),
+      ),
+    );
+  }
+
+  Widget _buildAIBanner(BuildContext context) {
+    return GestureDetector(
+      onTap: () => context.push('/ai-init'),
+      child: Container(
+        width: double.infinity,
+        padding: EdgeInsets.all(AppSpacing.lg),
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            colors: [
+              Color(0xFFF0F9F7),
+              Color(0xFFE0F2F1),
+            ],
+          ),
+          borderRadius: BorderRadius.circular(AppRadius.xl),
+          border: Border.all(color: AppColors.primary.withOpacity(0.15)),
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 42,
+              height: 42,
+              decoration: BoxDecoration(
+                color: AppColors.primary.withOpacity(0.15),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Icon(
+                Icons.download_rounded,
+                color: AppColors.primary,
+                size: 22,
+              ),
+            ),
+            SizedBox(width: AppSpacing.md),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'AI Belum Tersedia',
+                    style: GoogleFonts.plusJakartaSans(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w700,
+                      color: AppColors.primary,
+                    ),
+                  ),
+                  Text(
+                    'Tap untuk download model AI (~5.2 GB)',
+                    style: GoogleFonts.beVietnamPro(
+                      fontSize: 12,
+                      color: AppColors.textSecondary,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Icon(
+              Icons.arrow_forward_ios_rounded,
+              color: AppColors.primary,
+              size: 16,
+            ),
+          ],
+        ),
       ),
     );
   }

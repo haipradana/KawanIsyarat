@@ -3,6 +3,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:go_router/go_router.dart';
 import '../../../app/constants.dart';
+import 'alphabet_practice_screen.dart';
 
 class LearnAlfabetScreen extends StatefulWidget {
   const LearnAlfabetScreen({super.key});
@@ -152,7 +153,14 @@ class _LearnAlfabetScreenState extends State<LearnAlfabetScreen> {
             width: double.infinity,
             child: ElevatedButton.icon(
               onPressed: () {
-                // TODO: Open camera practice
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => AlphabetPracticeScreen(
+                      targetLetter: letter,
+                    ),
+                  ),
+                );
               },
               icon: Icon(Icons.videocam_rounded, size: 20),
               label: Text(

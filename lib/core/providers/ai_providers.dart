@@ -11,6 +11,7 @@ enum AIInitStatus {
   loadingLLM,
   loadingSTT,
   ready,
+  skipped,
   error,
 }
 
@@ -43,10 +44,12 @@ class AIInitState {
   }
 
   bool get isComplete => status == AIInitStatus.ready;
+  bool get isSkipped => status == AIInitStatus.skipped;
   bool get hasError => status == AIInitStatus.error;
   bool get isWorking =>
       status != AIInitStatus.notStarted &&
       status != AIInitStatus.ready &&
+      status != AIInitStatus.skipped &&
       status != AIInitStatus.error;
 }
 
@@ -171,10 +174,17 @@ class AIInitNotifier extends StateNotifier<AIInitState> {
   /// Skip AI initialization (use fallback mode).
   void skip() {
     state = state.copyWith(
-      status: AIInitStatus.ready,
-      progress: 1.0,
-      message: 'Mode offline tanpa AI',
+      status: AIInitStatus.skipped,
+      progress: 0.0,
+      message: 'AI dilewati — Download kapan saja dari Settings',
     );
+  }
+
+  /// Reset state so the user can re-enter the download page.
+  void resetForReentry() {
+    if (state.isSkipped || state.status == AIInitStatus.notStarted) {
+      state = const AIInitState();
+    }
   }
 
   /// Retry after an error.
@@ -192,4 +202,12 @@ final isGemmaReadyProvider = Provider<bool>((ref) {
 /// Provider that exposes whether the STT is loaded.
 final isSttReadyProvider = Provider<bool>((ref) {
   return SttService().isLoaded;
+});
+
+/// Provider that checks if model files exist on disk (regardless of in-memory state).
+final modelsDownloadedProvider = FutureProvider<bool>((ref) async {
+  final mm = ModelManager();
+  final llm = await mm.isModelReady(ModelType.gemmaLLM);
+  final stt = await mm.isModelReady(ModelType.whisperSTT);
+  return llm && stt;
 });

@@ -20,12 +20,13 @@ class ModelManager {
     ModelType.gemmaLLM:
         'https://huggingface.co/haipradana/kawan-isyarat-gemma-c/resolve/main/gemma-4-E2B-it-int4.zip',
     ModelType.whisperSTT:
-        'https://huggingface.co/haipradana/kawan-isyarat-gemma-c/resolve/main/whisper-tiny-id-cactus.zip',
+        'https://huggingface.co/Cactus-Compute/whisper-base/resolve/main/weights/whisper-base-int8.zip'
+        // 'https://huggingface.co/haipradana/kawan-isyarat-gemma-c/resolve/main/whisper-tiny-id-cactus.zip'
   };
 
   static const _modelDirNames = {
     ModelType.gemmaLLM: 'gemma-4-E2B-it-int4',
-    ModelType.whisperSTT: 'whisper-tiny-id-cactus',
+    ModelType.whisperSTT: 'whisper-base-int8',
   };
 
   static const _modelDisplayNames = {
@@ -67,6 +68,7 @@ class ModelManager {
   String get estimatedTotalSize => '~5.2 GB';
 
   /// Download a model with progress callback.
+  /// Supports resume — if a partial .zip exists, it continues from where it left off.
   /// Returns the local path to the extracted model directory.
   Future<String> downloadModel(
     ModelType type, {
@@ -76,7 +78,7 @@ class ModelManager {
     final modelPath = await getModelPath(type);
     final modelDir = Directory(modelPath);
 
-    // Check if already downloaded
+    // Check if already downloaded and extracted
     if (await modelDir.exists()) {
       final files = await modelDir.list().toList();
       if (files.isNotEmpty) {
@@ -95,21 +97,58 @@ class ModelManager {
     final zipFile = File(zipPath);
 
     try {
-      // Download the zip file
-      onProgress?.call(0.0, 'Menghubungkan ke server...');
+      // Check for existing partial download
+      int existingBytes = 0;
+      if (await zipFile.exists()) {
+        existingBytes = await zipFile.length();
+        onProgress?.call(0.0, 'Melanjutkan download (${(existingBytes / 1024 / 1024).toStringAsFixed(1)} MB sudah ada)...');
+      } else {
+        onProgress?.call(0.0, 'Menghubungkan ke server...');
+      }
 
       final client = http.Client();
       final request = http.Request('GET', Uri.parse(url));
+
+      // Add Range header for resume
+      if (existingBytes > 0) {
+        request.headers['Range'] = 'bytes=$existingBytes-';
+      }
+
       final response = await client.send(request);
 
-      if (response.statusCode != 200) {
+      // Check if server supports resume
+      final bool isResume = response.statusCode == 206 && existingBytes > 0;
+      final bool isFull = response.statusCode == 200;
+
+      if (!isResume && !isFull) {
         throw Exception('Download failed: HTTP ${response.statusCode}');
       }
 
-      final totalBytes = response.contentLength ?? 0;
-      var receivedBytes = 0;
+      // If server doesn't support Range (returns 200 instead of 206),
+      // restart from scratch
+      if (isFull && existingBytes > 0) {
+        existingBytes = 0;
+        // Truncate the file
+        if (await zipFile.exists()) {
+          await zipFile.delete();
+        }
+      }
 
-      final sink = zipFile.openWrite();
+      // Calculate total size
+      int totalBytes;
+      if (isResume) {
+        // Content-Range: bytes 12345-67890/67891
+        final contentRange = response.headers['content-range'] ?? '';
+        final match = RegExp(r'/(\d+)').firstMatch(contentRange);
+        totalBytes = match != null ? int.parse(match.group(1)!) : (existingBytes + (response.contentLength ?? 0));
+      } else {
+        totalBytes = response.contentLength ?? 0;
+      }
+
+      var receivedBytes = existingBytes;
+
+      // Open file for append (resume) or write (new)
+      final sink = zipFile.openWrite(mode: isResume ? FileMode.append : FileMode.write);
 
       await for (final chunk in response.stream) {
         sink.add(chunk);
@@ -120,7 +159,7 @@ class ModelManager {
           final mbTotal = (totalBytes / 1024 / 1024).toStringAsFixed(1);
           onProgress?.call(
             progress * 0.9, // 0-90% for download
-            'Mengunduh $mbReceived/$mbTotal MB',
+            '${isResume ? "Melanjutkan" : "Mengunduh"} $mbReceived/$mbTotal MB',
           );
         } else {
           final mbReceived = (receivedBytes / 1024 / 1024).toStringAsFixed(1);
@@ -144,10 +183,8 @@ class ModelManager {
       onProgress?.call(1.0, 'Selesai!');
       return modelPath;
     } catch (e) {
-      // Clean up on failure
-      if (await zipFile.exists()) {
-        await zipFile.delete();
-      }
+      // DON'T delete partial zip — keep it for resume on retry!
+      // Only delete if extraction failed (zip is likely corrupt)
       rethrow;
     }
   }

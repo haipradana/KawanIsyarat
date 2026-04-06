@@ -78,12 +78,20 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 .fadeIn(duration: 300.ms, delay: 500.ms),
             SizedBox(height: AppSpacing.md),
             _buildActionTile(
+              icon: Icons.psychology_rounded,
+              title: 'Model AI Lokal',
+              subtitle: 'Download dan kelola model AI on-device',
+              iconColor: AppColors.primary,
+              onTap: () => context.push('/ai-init'),
+            ).animate().fadeIn(duration: 300.ms, delay: 600.ms),
+            SizedBox(height: AppSpacing.sm),
+            _buildActionTile(
               icon: Icons.swap_horiz_rounded,
               title: 'Ganti Persona',
               subtitle: 'Kembali ke pilihan Tuli atau Mendengar',
               iconColor: AppColors.accent,
               onTap: () => _switchPersona(context),
-            ).animate().fadeIn(duration: 300.ms, delay: 600.ms),
+            ).animate().fadeIn(duration: 300.ms, delay: 650.ms),
             SizedBox(height: AppSpacing.sm),
             if (authState.isSignedIn)
               _buildActionTile(
@@ -502,7 +510,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             onPressed: () {
               Navigator.pop(ctx);
               ref.read(personaProvider.notifier).resetPersona();
-              context.go('/onboarding');
+              context.go('/persona');
             },
             child: Text(
               'Ganti',
@@ -553,7 +561,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               await ref.read(authProvider.notifier).signOut();
               ref.read(personaProvider.notifier).resetPersona();
               if (context.mounted) {
-                context.go('/login');
+                context.go('/');
               }
             },
             child: Text(

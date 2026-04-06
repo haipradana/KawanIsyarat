@@ -44,7 +44,7 @@ class GestureService {
     try {
       // Load LSTM model
       _lstmInterpreter = await Interpreter.fromAsset(
-        'models/bisindo_gesture.tflite',
+        'assets/models/bisindo_gesture.tflite',
         options: InterpreterOptions()..threads = 4,
       );
 

@@ -1,4 +1,5 @@
 import 'dart:typed_data';
+import 'package:flutter/foundation.dart';
 import '../ffi/cactus_wrapper.dart';
 import 'model_manager.dart';
 
@@ -63,15 +64,26 @@ class SttService {
 
   /// Transcribe audio from a file path.
   Future<String> transcribeFile(String audioPath) async {
-    if (!_isLoaded || _transcriber == null) return '';
+    debugPrint('[SttService] transcribeFile called, isLoaded=$_isLoaded, transcriber=${_transcriber != null}');
+
+    if (!_isLoaded || _transcriber == null) {
+      debugPrint('[SttService] Model NOT loaded — cannot transcribe');
+      return '';
+    }
 
     try {
+      debugPrint('[SttService] Calling cactus transcribeFile($audioPath)...');
       final result = await _transcriber!.transcribeFile(audioPath);
+      debugPrint('[SttService] Result: success=${result.success}, text="${result.text}", error=${result.error}, segments=${result.segments.length}');
+
       if (result.success && result.text.isNotEmpty) {
         return result.text.trim();
       }
+
+      debugPrint('[SttService] Transcription returned empty/failed');
       return '';
     } catch (e) {
+      debugPrint('[SttService] Exception: $e');
       return '';
     }
   }

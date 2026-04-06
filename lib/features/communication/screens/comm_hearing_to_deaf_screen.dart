@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:go_router/go_router.dart';
+import 'package:audioplayers/audioplayers.dart';
 import '../../../app/constants.dart';
 import '../../../shared/widgets/kawan_app_bar.dart';
 
@@ -21,7 +22,14 @@ class CommHearingToDeafScreen extends ConsumerStatefulWidget {
 
 class _CommHearingToDeafScreenState
     extends ConsumerState<CommHearingToDeafScreen> {
+  final _player = AudioPlayer();
+  bool _isPlaying = false;
+
   @override
+  void dispose() {
+    _player.dispose();
+    super.dispose();
+  }
   Widget build(BuildContext context) {
     final state = ref.watch(hearingToDeafProvider);
 
@@ -42,13 +50,42 @@ class _CommHearingToDeafScreenState
                 .animate()
                 .fadeIn(duration: 400.ms, delay: 100.ms),
             SizedBox(height: AppSpacing.xxl),
+
+            // Error message
+            if (state.errorMessage != null && state.errorMessage!.isNotEmpty)
+              Container(
+                width: double.infinity,
+                margin: EdgeInsets.only(bottom: AppSpacing.lg),
+                padding: EdgeInsets.all(AppSpacing.lg),
+                decoration: BoxDecoration(
+                  color: Colors.red.withOpacity(0.08),
+                  borderRadius: BorderRadius.circular(AppRadius.md),
+                  border: Border.all(color: Colors.red.withOpacity(0.2)),
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.error_outline, color: Colors.red, size: 18),
+                    SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        state.errorMessage!,
+                        style: GoogleFonts.plusJakartaSans(
+                          fontSize: 13,
+                          color: Colors.red,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+
             // Raw Transcription
             _buildTranscriptionSection(
               label: 'TRANSKRIPSI MENTAH',
               labelColor: AppColors.textSecondary,
               text: state.rawTranscription.isNotEmpty
                   ? state.rawTranscription
-                  : 'Tekan dan tahan tombol untuk mulai bicara...',
+                  : 'Tekan tombol untuk mulai bicara...',
               textStyle: GoogleFonts.beVietnamPro(
                 fontSize: 15,
                 fontWeight: FontWeight.w400,
@@ -70,13 +107,75 @@ class _CommHearingToDeafScreenState
               child: PushToStartButton(
                 isActive: state.isRecording,
                 icon: Icons.mic_rounded,
-                label: 'TAHAN UNTUK BICARA',
+                label: 'TEKAN UNTUK BICARA',
                 onStart: () =>
                     ref.read(hearingToDeafProvider.notifier).startRecording(),
                 onStop: () =>
                     ref.read(hearingToDeafProvider.notifier).stopRecording(),
               ),
             ).animate().fadeIn(duration: 400.ms, delay: 400.ms),
+
+            // Debug: Play recording & WAV info
+            if (state.lastRecordingPath != null) ...[              SizedBox(height: AppSpacing.lg),
+              Container(
+                width: double.infinity,
+                padding: EdgeInsets.all(AppSpacing.lg),
+                decoration: BoxDecoration(
+                  color: AppColors.surfaceContainerLow,
+                  borderRadius: BorderRadius.circular(AppRadius.md),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'DEBUG AUDIO',
+                      style: GoogleFonts.plusJakartaSans(
+                        fontSize: 10,
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.textSecondary,
+                        letterSpacing: 1.5,
+                      ),
+                    ),
+                    SizedBox(height: 8),
+                    if (state.debugWavInfo != null)
+                      Text(
+                        state.debugWavInfo!,
+                        style: GoogleFonts.jetBrainsMono(
+                          fontSize: 12,
+                          color: AppColors.textSecondary,
+                        ),
+                      ),
+                    SizedBox(height: 8),
+                    ElevatedButton.icon(
+                      onPressed: () async {
+                        if (_isPlaying) {
+                          await _player.stop();
+                          setState(() => _isPlaying = false);
+                        } else {
+                          await _player.play(
+                            DeviceFileSource(state.lastRecordingPath!),
+                          );
+                          setState(() => _isPlaying = true);
+                          _player.onPlayerComplete.listen((_) {
+                            if (mounted) setState(() => _isPlaying = false);
+                          });
+                        }
+                      },
+                      icon: Icon(
+                        _isPlaying ? Icons.stop : Icons.play_arrow,
+                        size: 18,
+                      ),
+                      label: Text(_isPlaying ? 'Stop' : 'Putar Rekaman'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppColors.primaryDark,
+                        foregroundColor: Colors.white,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+
             SizedBox(height: AppSpacing.xxxl),
           ],
         ),

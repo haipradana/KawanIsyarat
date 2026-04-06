@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:isolate';
 import 'dart:typed_data';
+import 'package:flutter/foundation.dart';
 import 'cactus.dart';
 
 /// A chat message for Cactus completion.
@@ -204,8 +205,12 @@ class CactusTranscriber {
     }
   }
 
+  /// Whisper prompt template with language token.
+  static String _whisperPrompt(String language) =>
+      '<|startoftranscript|><|$language|><|transcribe|><|notimestamps|>';
+
   /// Transcribes audio from a file path.
-  Future<CactusTranscriptionResult> transcribeFile(String audioPath) async {
+  Future<CactusTranscriptionResult> transcribeFile(String audioPath, {String language = 'id'}) async {
     if (!_isLoaded || _handle == null) {
       return CactusTranscriptionResult(
         success: false,
@@ -216,13 +221,18 @@ class CactusTranscriber {
 
     try {
       final handle = _handle!;
+      final prompt = _whisperPrompt(language);
+      final options = jsonEncode({'language': language});
+      debugPrint('[CactusTranscriber] Using prompt: $prompt');
       final resultJson = await Isolate.run(() {
-        return cactusTranscribe(handle, audioPath, null, null, null, null);
+        return cactusTranscribe(handle, audioPath, prompt, options, null, null);
       });
 
+      debugPrint('[CactusTranscriber] Raw JSON: $resultJson');
       final parsed = jsonDecode(resultJson) as Map<String, dynamic>;
       return CactusTranscriptionResult.fromJson(parsed);
     } catch (e) {
+      debugPrint('[CactusTranscriber] Exception: $e');
       return CactusTranscriptionResult(
         success: false,
         error: e.toString(),
@@ -232,7 +242,7 @@ class CactusTranscriber {
   }
 
   /// Transcribes audio from raw PCM data (16-bit, 16kHz, mono).
-  Future<CactusTranscriptionResult> transcribePcm(Uint8List pcmData) async {
+  Future<CactusTranscriptionResult> transcribePcm(Uint8List pcmData, {String language = 'id'}) async {
     if (!_isLoaded || _handle == null) {
       return CactusTranscriptionResult(
         success: false,
@@ -243,8 +253,10 @@ class CactusTranscriber {
 
     try {
       final handle = _handle!;
+      final prompt = _whisperPrompt(language);
+      final options = jsonEncode({'language': language});
       final resultJson = await Isolate.run(() {
-        return cactusTranscribe(handle, null, null, null, null, pcmData);
+        return cactusTranscribe(handle, null, prompt, options, null, pcmData);
       });
 
       final parsed = jsonDecode(resultJson) as Map<String, dynamic>;

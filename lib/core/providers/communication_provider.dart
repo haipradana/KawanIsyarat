@@ -1,6 +1,11 @@
 import 'dart:async';
+import 'dart:io';
+import 'dart:typed_data';
 import 'dart:ui';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:record/record.dart';
 import '../services/gesture_service.dart';
 import '../services/mediapipe_service.dart';
 import '../services/gemma_service.dart';
@@ -155,12 +160,18 @@ class HearingToDeafState {
   final String smartSummary;
   final bool isRecording;
   final bool isProcessing;
+  final String? errorMessage;
+  final String? lastRecordingPath;
+  final String? debugWavInfo;
 
   const HearingToDeafState({
     this.rawTranscription = '',
     this.smartSummary = '',
     this.isRecording = false,
     this.isProcessing = false,
+    this.errorMessage,
+    this.lastRecordingPath,
+    this.debugWavInfo,
   });
 
   HearingToDeafState copyWith({
@@ -168,12 +179,18 @@ class HearingToDeafState {
     String? smartSummary,
     bool? isRecording,
     bool? isProcessing,
+    String? errorMessage,
+    String? lastRecordingPath,
+    String? debugWavInfo,
   }) {
     return HearingToDeafState(
       rawTranscription: rawTranscription ?? this.rawTranscription,
       smartSummary: smartSummary ?? this.smartSummary,
       isRecording: isRecording ?? this.isRecording,
       isProcessing: isProcessing ?? this.isProcessing,
+      errorMessage: errorMessage,
+      lastRecordingPath: lastRecordingPath ?? this.lastRecordingPath,
+      debugWavInfo: debugWavInfo ?? this.debugWavInfo,
     );
   }
 }
@@ -188,28 +205,155 @@ class HearingToDeafNotifier extends StateNotifier<HearingToDeafState> {
 
   final _sttService = SttService();
   final _gemmaService = GemmaService();
+  final _recorder = AudioRecorder();
+  String? _recordingPath;
 
-  void startRecording() {
+  /// Start recording real audio via microphone.
+  Future<void> startRecording() async {
     state = state.copyWith(
       isRecording: true,
       rawTranscription: '',
       smartSummary: '',
+      errorMessage: null,
     );
+
+    try {
+      // Check permission
+      final hasPermission = await _recorder.hasPermission();
+      if (!hasPermission) {
+        state = state.copyWith(
+          isRecording: false,
+          errorMessage: 'Izin mikrofon ditolak',
+        );
+        return;
+      }
+
+      // Record WAV: 16kHz, 16-bit, mono — Whisper expected format
+      final tempDir = await getTemporaryDirectory();
+      _recordingPath = '${tempDir.path}/stt_recording.wav';
+
+      await _recorder.start(
+        RecordConfig(
+          encoder: AudioEncoder.wav,
+          sampleRate: 16000,
+          numChannels: 1,
+          bitRate: 256000,
+        ),
+        path: _recordingPath!,
+      );
+
+      debugPrint('[STT] Recording started → $_recordingPath');
+    } catch (e) {
+      debugPrint('[STT] Recording start error: $e');
+      state = state.copyWith(
+        isRecording: false,
+        errorMessage: 'Gagal merekam: $e',
+      );
+    }
   }
 
+  /// Stop recording, transcribe, then summarize.
   Future<void> stopRecording() async {
     state = state.copyWith(isRecording: false, isProcessing: true);
 
-    final transcription = await _sttService.transcribe(null);
-    state = state.copyWith(rawTranscription: transcription);
+    try {
+      // Stop recorder — file is saved at _recordingPath
+      final path = await _recorder.stop();
+      debugPrint('[STT] Recording stopped → $path');
 
-    final summary = await _gemmaService.summarizeSpeech(transcription);
-    if (mounted) {
-      state = state.copyWith(
-        smartSummary: summary,
-        isProcessing: false,
-      );
+      final audioPath = path ?? _recordingPath;
+      if (audioPath == null || audioPath.isEmpty) {
+        state = state.copyWith(
+          isProcessing: false,
+          errorMessage: 'Rekaman gagal disimpan',
+        );
+        return;
+      }
+
+      // Check file exists
+      final file = File(audioPath);
+      if (!await file.exists()) {
+        state = state.copyWith(
+          isProcessing: false,
+          errorMessage: 'File rekaman tidak ditemukan',
+        );
+        return;
+      }
+
+      final fileSize = await file.length();
+      debugPrint('[STT] Audio file: $audioPath ($fileSize bytes)');
+
+      // Inspect WAV header for debugging
+      String wavInfo = 'File: ${fileSize} bytes';
+      try {
+        final headerBytes = await file.openRead(0, 44).fold<List<int>>(
+          <int>[], (prev, chunk) => prev..addAll(chunk));
+        if (headerBytes.length >= 44) {
+          final bd = ByteData.sublistView(Uint8List.fromList(headerBytes));
+          final sampleRate = bd.getUint32(24, Endian.little);
+          final numChannels = bd.getUint16(22, Endian.little);
+          final bitsPerSample = bd.getUint16(34, Endian.little);
+          final dataSize = bd.getUint32(40, Endian.little);
+          final durationSec = dataSize / (sampleRate * numChannels * (bitsPerSample / 8));
+          wavInfo = '${sampleRate}Hz ${numChannels}ch ${bitsPerSample}bit | '
+              '${durationSec.toStringAsFixed(1)}s | ${fileSize}B';
+          debugPrint('[STT] WAV: $wavInfo');
+        }
+      } catch (e) {
+        debugPrint('[STT] WAV header parse error: $e');
+      }
+
+      if (mounted) {
+        state = state.copyWith(
+          lastRecordingPath: audioPath,
+          debugWavInfo: wavInfo,
+        );
+      }
+
+      // Step 1: Transcribe via Whisper STT
+      debugPrint('[STT] Transcribing...');
+      final transcription = await _sttService.transcribeFile(audioPath);
+      debugPrint('[STT] Transcription: "$transcription"');
+
+      if (transcription.isEmpty) {
+        state = state.copyWith(
+          isProcessing: false,
+          rawTranscription: '',
+          errorMessage: 'Transkripsi kosong ($wavInfo)',
+        );
+        return;
+      }
+
+      if (mounted) {
+        state = state.copyWith(rawTranscription: transcription);
+      }
+
+      // Step 2: Summarize via Gemma LLM
+      debugPrint('[STT] Summarizing via Gemma...');
+      final summary = await _gemmaService.summarizeSpeech(transcription);
+      debugPrint('[STT] Summary: "$summary"');
+
+      if (mounted) {
+        state = state.copyWith(
+          smartSummary: summary,
+          isProcessing: false,
+        );
+      }
+    } catch (e) {
+      debugPrint('[STT] Pipeline error: $e');
+      if (mounted) {
+        state = state.copyWith(
+          isProcessing: false,
+          errorMessage: 'Error: $e',
+        );
+      }
     }
+  }
+
+  @override
+  void dispose() {
+    _recorder.dispose();
+    super.dispose();
   }
 }
 
