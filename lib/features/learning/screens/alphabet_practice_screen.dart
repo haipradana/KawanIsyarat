@@ -1,7 +1,5 @@
 import 'dart:async';
-import 'dart:io';
 import 'dart:typed_data';
-import 'package:path_provider/path_provider.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:flutter_animate/flutter_animate.dart';
@@ -10,15 +8,12 @@ import 'package:camera/camera.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:image/image.dart' as img;
 import '../../../app/constants.dart';
-import '../../../core/services/alphabet_service.dart';
-import '../../../core/services/hand_detector_service.dart';
+import '../../../core/services/yolo_alphabet_service.dart';
 
-/// Alphabet practice screen.
+/// Alphabet practice screen — YOLO11n one-shot detector.
 ///
-/// Pipeline (semua real, tidak ada mock):
-///   Camera → takePicture → decode JPEG → Palm Detection → bbox → crop → CNN → letter
-///
-/// Auto-capture setiap 2.5 detik dengan countdown visual.
+/// Pipeline: Camera → takePicture → decode JPEG → YOLO → letter + bbox
+/// No palm detection or hand crop needed — YOLO handles it directly.
 class AlphabetPracticeScreen extends StatefulWidget {
   final String targetLetter;
 
@@ -33,16 +28,14 @@ enum _Phase { preparing, countdown, analyzing, result }
 class _AlphabetPracticeScreenState extends State<AlphabetPracticeScreen>
     with SingleTickerProviderStateMixin {
   CameraController? _cameraController;
-  final AlphabetService _alphabet = AlphabetService();
-  final HandDetectorService _handDetector = HandDetectorService();
+  final YoloAlphabetService _yolo = YoloAlphabetService();
 
   bool _isInitialized = false;
   String? _error;
   bool _disposed = false;
 
   _Phase _phase = _Phase.preparing;
-  AlphabetResult? _lastResult;
-  HandBoundingBox? _lastBbox;
+  YoloDetectionResult? _lastResult;
   bool _isCorrect = false;
   int _correctCount = 0;
   int _totalCount = 0;
@@ -97,13 +90,9 @@ class _AlphabetPracticeScreenState extends State<AlphabetPracticeScreen>
 
       await _cameraController!.initialize();
 
-      // Load hand detector model
-      await _handDetector.initialize();
-      debugPrint('[Practice] Hand detector loaded');
-
-      // Load CNN alphabet model
-      await _alphabet.initialize();
-      debugPrint('[Practice] CNN loaded, ${_alphabet.numClasses} classes');
+      // Load YOLO model
+      await _yolo.initialize();
+      debugPrint('[Practice] YOLO loaded');
 
       if (mounted && !_disposed) {
         setState(() {
@@ -144,7 +133,7 @@ class _AlphabetPracticeScreenState extends State<AlphabetPracticeScreen>
       // Step 2: Decode JPEG → RGBA
       final decoded = img.decodeImage(bytes);
       if (decoded == null) {
-        _showResult(null, null, 'Decode JPEG gagal');
+        _showResult(null, 'Decode JPEG gagal');
         return;
       }
 
@@ -162,119 +151,25 @@ class _AlphabetPracticeScreenState extends State<AlphabetPracticeScreen>
 
       debugPrint('[Practice] Image: ${decoded.width}×${decoded.height}');
 
-      // Step 3: Palm detection — real MediaPipe model
-      final hands = _handDetector.detect(rgba, decoded.width, decoded.height);
-
-      if (hands.isEmpty) {
-        _showResult(null, null, 'Tangan tidak terdeteksi (${decoded.width}×${decoded.height})');
-        return;
-      }
-
-      // Take best detection & make bbox SQUARE
-      var rawBbox = hands.first;
-      debugPrint('[Practice] Raw bbox: center=(${rawBbox.xCenter.toStringAsFixed(3)}, ${rawBbox.yCenter.toStringAsFixed(3)}), size=(${rawBbox.width.toStringAsFixed(3)}, ${rawBbox.height.toStringAsFixed(3)})');
-
-      // Step 4: Crop hand region — force SQUARE at pixel level
-      final rawBboxExpanded = HandBoundingBox(
-        xCenter: rawBbox.xCenter,
-        yCenter: rawBbox.yCenter,
-        width: rawBbox.width,
-        height: rawBbox.height,
-        score: rawBbox.score,
-      ).expand(1.5).clamp01(); // 50% padding
-
-      var x1 = (rawBboxExpanded.xMin * decoded.width).toInt().clamp(0, decoded.width - 1);
-      var y1 = (rawBboxExpanded.yMin * decoded.height).toInt().clamp(0, decoded.height - 1);
-      var x2 = (rawBboxExpanded.xMax * decoded.width).toInt().clamp(x1 + 1, decoded.width);
-      var y2 = (rawBboxExpanded.yMax * decoded.height).toInt().clamp(y1 + 1, decoded.height);
-      var cropW = x2 - x1;
-      var cropH = y2 - y1;
-
-      // Force square: use max side, center the crop
-      if (cropW != cropH) {
-        final maxSide = cropW > cropH ? cropW : cropH;
-        final cx = (x1 + x2) ~/ 2;
-        final cy = (y1 + y2) ~/ 2;
-        x1 = (cx - maxSide ~/ 2).clamp(0, decoded.width - maxSide);
-        y1 = (cy - maxSide ~/ 2).clamp(0, decoded.height - maxSide);
-        x2 = x1 + maxSide;
-        y2 = y1 + maxSide;
-        cropW = maxSide;
-        cropH = maxSide;
-      }
-
-      // Use rawBbox (not expanded) for display overlay
-      final bbox = rawBbox;
-
-      if (cropW <= 0 || cropH <= 0) {
-        _showResult(null, bbox, 'Crop terlalu kecil');
-        return;
-      }
-
-      final cropRgba = Uint8List(cropW * cropH * 4);
-      int outIdx = 0;
-      for (int y = y1; y < y2; y++) {
-        for (int x = x1; x < x2; x++) {
-          final srcIdx = (y * decoded.width + x) * 4;
-          cropRgba[outIdx++] = rgba[srcIdx];
-          cropRgba[outIdx++] = rgba[srcIdx + 1];
-          cropRgba[outIdx++] = rgba[srcIdx + 2];
-          cropRgba[outIdx++] = rgba[srcIdx + 3];
-        }
-      }
-
-      debugPrint('[Practice] Crop px: ($x1,$y1)-($x2,$y2) = ${cropW}×$cropH ✓square');
-      debugPrint('[Practice] Bbox normalized: center=(${rawBbox.xCenter.toStringAsFixed(3)},${rawBbox.yCenter.toStringAsFixed(3)}) '
-          'size=(${rawBbox.width.toStringAsFixed(3)},${rawBbox.height.toStringAsFixed(3)}) '
-          'pixel center=(${(rawBbox.xCenter * decoded.width).toInt()},${(rawBbox.yCenter * decoded.height).toInt()})');
-
-      // Save debug images to inspect what's happening
-      try {
-        final debugDir = await getTemporaryDirectory();
-
-        // Save full captured image
-        final fullPath = '${debugDir.path}/debug_full.jpg';
-        await xFile.saveTo(fullPath);
-        debugPrint('[Practice] DEBUG saved full: $fullPath');
-
-        // Save crop as PNG
-        final cropImg = img.Image(width: cropW, height: cropH);
-        int srcIdx2 = 0;
-        for (int cy = 0; cy < cropH; cy++) {
-          for (int cx = 0; cx < cropW; cx++) {
-            cropImg.setPixelRgba(cx, cy,
-              cropRgba[srcIdx2], cropRgba[srcIdx2 + 1],
-              cropRgba[srcIdx2 + 2], 255);
-            srcIdx2 += 4;
-          }
-        }
-        final cropPath = '${debugDir.path}/debug_crop.png';
-        await File(cropPath).writeAsBytes(img.encodePng(cropImg));
-        debugPrint('[Practice] DEBUG saved crop: $cropPath');
-      } catch (e) {
-        debugPrint('[Practice] DEBUG save error: $e');
-      }
-
-      // Step 5: CNN classify
-      final result = _alphabet.classifyFromCrop(
-        rgbaBytes: cropRgba,
-        cropWidth: cropW,
-        cropHeight: cropH,
+      // Step 3: YOLO detection — one shot, no crop needed
+      final result = _yolo.detect(
+        rgbaBytes: rgba,
+        imageWidth: decoded.width,
+        imageHeight: decoded.height,
       );
 
-      final info = 'Img: ${decoded.width}×${decoded.height} | '
-          'Hand: ${(bbox.score * 100).toInt()}% | '
-          'Crop: ${cropW}×$cropH | '
-          'CNN: ${result?.letter ?? "?"} ${result != null ? "${(result.confidence * 100).toInt()}%" : "low"}';
+      final info = result != null
+          ? 'YOLO: ${result.letter} ${(result.confidence * 100).toInt()}% | ${decoded.width}×${decoded.height}'
+          : 'Img: ${decoded.width}×${decoded.height} | Tidak terdeteksi';
 
-      _showResult(result, bbox, info);
+      _showResult(result, info);
     } catch (e) {
       debugPrint('[Practice] Error: $e');
-      _showResult(null, null, 'Error: $e');
+      _showResult(null, 'Error: $e');
     }
   }
 
-  void _showResult(AlphabetResult? result, HandBoundingBox? bbox, String debug) {
+  void _showResult(YoloDetectionResult? result, String debug) {
     if (_disposed || !mounted) return;
 
     _totalCount++;
@@ -284,7 +179,6 @@ class _AlphabetPracticeScreenState extends State<AlphabetPracticeScreen>
     setState(() {
       _phase = _Phase.result;
       _lastResult = result;
-      _lastBbox = bbox;
       _isCorrect = correct;
       _debugInfo = debug;
     });
@@ -305,6 +199,7 @@ class _AlphabetPracticeScreenState extends State<AlphabetPracticeScreen>
     _phaseTimer?.cancel();
     _countdownController.dispose();
     _cameraController?.dispose();
+    _yolo.dispose();
     super.dispose();
   }
 
@@ -328,19 +223,17 @@ class _AlphabetPracticeScreenState extends State<AlphabetPracticeScreen>
                 ),
               ),
 
-            // Bounding box overlay (real detected hand)
-            if (_isInitialized && _lastBbox != null && _phase == _Phase.result)
+            // Bounding box overlay from YOLO result
+            if (_isInitialized && _lastResult != null && _phase == _Phase.result)
               Positioned.fill(
                 child: LayoutBuilder(
                   builder: (context, constraints) {
-                    final bbox = _lastBbox!;
-                    final w = constraints.maxWidth;
-                    final h = constraints.maxHeight;
                     return CustomPaint(
-                      painter: _BboxPainter(
-                        bbox: bbox,
-                        canvasWidth: w,
-                        canvasHeight: h,
+                      painter: _YoloBboxPainter(
+                        bbox: _lastResult!.bbox,
+                        label: '${_lastResult!.letter} ${(_lastResult!.confidence * 100).toInt()}%',
+                        canvasWidth: constraints.maxWidth,
+                        canvasHeight: constraints.maxHeight,
                         isCorrect: _isCorrect,
                         isFrontCamera: _isFrontCamera,
                       ),
@@ -349,10 +242,11 @@ class _AlphabetPracticeScreenState extends State<AlphabetPracticeScreen>
                 ),
               ),
 
-            // Countdown / analyzing indicator (no guide box — palm detection scans entire frame)
+            // Countdown indicator
             if (_isInitialized && _phase == _Phase.countdown)
               Center(child: _buildCountdown()),
 
+            // Analyzing indicator
             if (_isInitialized && _phase == _Phase.analyzing)
               Center(
                 child: Container(
@@ -361,9 +255,14 @@ class _AlphabetPracticeScreenState extends State<AlphabetPracticeScreen>
                     color: Colors.black38,
                     borderRadius: BorderRadius.circular(16),
                   ),
-                  child: SizedBox(width: 32, height: 32,
+                  child: SizedBox(
+                    width: 32,
+                    height: 32,
                     child: CircularProgressIndicator(
-                      strokeWidth: 3, color: Colors.white70)),
+                      strokeWidth: 3,
+                      color: Colors.white70,
+                    ),
+                  ),
                 ),
               ),
 
@@ -375,13 +274,17 @@ class _AlphabetPracticeScreenState extends State<AlphabetPracticeScreen>
                   children: [
                     CircularProgressIndicator(color: AppColors.primary),
                     SizedBox(height: 16),
-                    Text('Memuat model AI...',
+                    Text(
+                      'Memuat model AI...',
                       style: GoogleFonts.beVietnamPro(
-                        color: Colors.white70, fontSize: 14)),
+                        color: Colors.white70, fontSize: 14),
+                    ),
                     SizedBox(height: 8),
-                    Text('Palm Detection + CNN Alphabet',
+                    Text(
+                      'YOLO11n Alphabet Detector',
                       style: GoogleFonts.jetBrainsMono(
-                        color: Colors.white38, fontSize: 11)),
+                        color: Colors.white38, fontSize: 11),
+                    ),
                   ],
                 ),
               ),
@@ -397,17 +300,20 @@ class _AlphabetPracticeScreenState extends State<AlphabetPracticeScreen>
                       Icon(Icons.error_outline_rounded,
                           color: AppColors.error, size: 48),
                       SizedBox(height: 16),
-                      Text(_error!,
+                      Text(
+                        _error!,
                         style: GoogleFonts.beVietnamPro(
                           color: Colors.white, fontSize: 14),
-                        textAlign: TextAlign.center),
+                        textAlign: TextAlign.center,
+                      ),
                       SizedBox(height: 24),
                       ElevatedButton(
                         onPressed: () => context.pop(),
                         style: ElevatedButton.styleFrom(
                           backgroundColor: AppColors.primary,
                           foregroundColor: Colors.white),
-                        child: Text('Kembali')),
+                        child: Text('Kembali'),
+                      ),
                     ],
                   ),
                 ),
@@ -440,10 +346,13 @@ class _AlphabetPracticeScreenState extends State<AlphabetPracticeScreen>
                         color: Colors.black54,
                         borderRadius: BorderRadius.circular(8),
                       ),
-                      child: Text('$_correctCount/$_totalCount',
+                      child: Text(
+                        '$_correctCount/$_totalCount',
                         style: GoogleFonts.jetBrainsMono(
-                          color: Colors.white70, fontSize: 13,
-                          fontWeight: FontWeight.w600)),
+                          color: Colors.white70,
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600),
+                      ),
                     ),
                   ],
                 ),
@@ -472,10 +381,12 @@ class _AlphabetPracticeScreenState extends State<AlphabetPracticeScreen>
                     _buildResultPanel(),
                     if (_debugInfo.isNotEmpty) ...[
                       SizedBox(height: 6),
-                      Text(_debugInfo,
+                      Text(
+                        _debugInfo,
                         style: GoogleFonts.jetBrainsMono(
                           color: Colors.white38, fontSize: 10),
-                        textAlign: TextAlign.center),
+                        textAlign: TextAlign.center,
+                      ),
                     ],
                   ],
                 ),
@@ -503,7 +414,8 @@ class _AlphabetPracticeScreenState extends State<AlphabetPracticeScreen>
     return AnimatedBuilder(
       animation: _countdownController,
       builder: (_, __) => SizedBox(
-        width: 52, height: 52,
+        width: 52,
+        height: 52,
         child: Stack(
           alignment: Alignment.center,
           children: [
@@ -531,7 +443,9 @@ class _AlphabetPracticeScreenState extends State<AlphabetPracticeScreen>
             : Colors.white.withOpacity(0.15),
         borderRadius: BorderRadius.circular(AppRadius.full),
         border: Border.all(
-          color: isOk ? AppColors.success.withOpacity(0.6) : Colors.white30),
+          color: isOk
+              ? AppColors.success.withOpacity(0.6)
+              : Colors.white30),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -541,7 +455,8 @@ class _AlphabetPracticeScreenState extends State<AlphabetPracticeScreen>
               color: Colors.white70, fontSize: 13)),
           Text(widget.targetLetter,
             style: GoogleFonts.plusJakartaSans(
-              color: Colors.white, fontSize: 22,
+              color: Colors.white,
+              fontSize: 22,
               fontWeight: FontWeight.w800)),
           if (isOk) ...[
             SizedBox(width: 4),
@@ -559,13 +474,15 @@ class _AlphabetPracticeScreenState extends State<AlphabetPracticeScreen>
             Colors.white60);
       case _Phase.countdown:
         return _pill(Icons.front_hand_rounded,
-            'Tunjukkan isyarat "${widget.targetLetter}" di dalam kotak',
+            'Tunjukkan isyarat "${widget.targetLetter}" ke kamera',
             Colors.white60);
       case _Phase.analyzing:
         return Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            SizedBox(width: 16, height: 16,
+            SizedBox(
+              width: 16,
+              height: 16,
               child: CircularProgressIndicator(
                 strokeWidth: 2, color: Colors.white54)),
             SizedBox(width: 10),
@@ -575,24 +492,28 @@ class _AlphabetPracticeScreenState extends State<AlphabetPracticeScreen>
           ],
         );
       case _Phase.result:
-        if (_lastBbox == null) {
-          return _resultCard(Icons.search_off_rounded, Colors.white54,
-              'Tangan tidak terdeteksi',
-              'Pastikan tangan terlihat di kotak panduan');
-        }
         if (_lastResult == null) {
-          return _resultCard(Icons.help_outline_rounded, Colors.white54,
-              'Huruf tidak dikenali',
-              'Coba posisikan isyarat lebih jelas');
+          return _resultCard(
+            Icons.search_off_rounded,
+            Colors.white54,
+            'Tangan tidak terdeteksi',
+            'Pastikan tangan terlihat jelas di kamera',
+          );
         }
         if (_isCorrect) {
-          return _resultCard(Icons.check_circle_rounded, AppColors.success,
-              'Benar! "${_lastResult!.letter}" ✨',
-              '${(_lastResult!.confidence * 100).toStringAsFixed(1)}% confidence');
+          return _resultCard(
+            Icons.check_circle_rounded,
+            AppColors.success,
+            'Benar! "${_lastResult!.letter}" ✨',
+            '${(_lastResult!.confidence * 100).toStringAsFixed(1)}% confidence',
+          );
         }
-        return _resultCard(Icons.close_rounded, AppColors.error,
-            'Terdeteksi: "${_lastResult!.letter}"',
-            'Target "${widget.targetLetter}" — ${(_lastResult!.confidence * 100).toStringAsFixed(1)}%');
+        return _resultCard(
+          Icons.close_rounded,
+          AppColors.error,
+          'Terdeteksi: "${_lastResult!.letter}"',
+          'Target "${widget.targetLetter}" — ${(_lastResult!.confidence * 100).toStringAsFixed(1)}%',
+        );
     }
   }
 
@@ -608,9 +529,11 @@ class _AlphabetPracticeScreenState extends State<AlphabetPracticeScreen>
         children: [
           Icon(icon, color: color, size: 20),
           SizedBox(width: 10),
-          Flexible(child: Text(text,
-            style: GoogleFonts.beVietnamPro(color: color, fontSize: 14),
-            textAlign: TextAlign.center)),
+          Flexible(
+            child: Text(text,
+              style: GoogleFonts.beVietnamPro(color: color, fontSize: 14),
+              textAlign: TextAlign.center),
+          ),
         ],
       ),
     );
@@ -637,7 +560,8 @@ class _AlphabetPracticeScreenState extends State<AlphabetPracticeScreen>
                 Text(title,
                   style: GoogleFonts.plusJakartaSans(
                     color: c == Colors.white54 ? Colors.white : c,
-                    fontSize: 16, fontWeight: FontWeight.w700)),
+                    fontSize: 16,
+                    fontWeight: FontWeight.w700)),
                 Text(sub,
                   style: GoogleFonts.beVietnamPro(
                     color: Colors.white54, fontSize: 12)),
@@ -651,16 +575,17 @@ class _AlphabetPracticeScreenState extends State<AlphabetPracticeScreen>
   }
 }
 
-/// Draws a real bounding box from palm detection.
-class _BboxPainter extends CustomPainter {
-  final HandBoundingBox bbox;
+/// Draws YOLO bounding box on the camera preview.
+class _YoloBboxPainter extends CustomPainter {
+  final YoloBBox bbox;
+  final String label;
   final double canvasWidth, canvasHeight;
   final bool isCorrect;
-
   final bool isFrontCamera;
 
-  _BboxPainter({
+  const _YoloBboxPainter({
     required this.bbox,
+    required this.label,
     required this.canvasWidth,
     required this.canvasHeight,
     required this.isCorrect,
@@ -706,11 +631,15 @@ class _BboxPainter extends CustomPainter {
         ..style = PaintingStyle.fill,
     );
 
-    // Score label
+    // Label
     final tp = TextPainter(
       text: TextSpan(
-        text: '${(bbox.score * 100).toInt()}%',
-        style: TextStyle(color: color, fontSize: 12, fontWeight: FontWeight.bold),
+        text: label,
+        style: TextStyle(
+          color: color,
+          fontSize: 12,
+          fontWeight: FontWeight.bold,
+        ),
       ),
       textDirection: TextDirection.ltr,
     )..layout();
@@ -718,6 +647,6 @@ class _BboxPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(covariant _BboxPainter old) =>
-      bbox != old.bbox || isCorrect != old.isCorrect;
+  bool shouldRepaint(covariant _YoloBboxPainter old) =>
+      bbox != old.bbox || isCorrect != old.isCorrect || label != old.label;
 }

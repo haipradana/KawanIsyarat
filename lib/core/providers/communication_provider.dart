@@ -19,6 +19,8 @@ import '../../shared/models/user_persona.dart';
 class DeafToHearingState {
   final List<String> currentGloss;
   final String refinedSentence;
+  /// Saran empatik dari Gemma untuk lawan bicara (orang dengar).
+  final String? aiSuggestion;
   final bool isCapturing;
   final bool isProcessing;
   final List<Offset> skeletonPoints;
@@ -27,6 +29,7 @@ class DeafToHearingState {
   const DeafToHearingState({
     this.currentGloss = const [],
     this.refinedSentence = '',
+    this.aiSuggestion,
     this.isCapturing = false,
     this.isProcessing = false,
     this.skeletonPoints = const [],
@@ -36,14 +39,17 @@ class DeafToHearingState {
   DeafToHearingState copyWith({
     List<String>? currentGloss,
     String? refinedSentence,
+    String? aiSuggestion,
     bool? isCapturing,
     bool? isProcessing,
     List<Offset>? skeletonPoints,
     String? errorMessage,
+    bool clearAiSuggestion = false,
   }) {
     return DeafToHearingState(
       currentGloss: currentGloss ?? this.currentGloss,
       refinedSentence: refinedSentence ?? this.refinedSentence,
+      aiSuggestion: clearAiSuggestion ? null : (aiSuggestion ?? this.aiSuggestion),
       isCapturing: isCapturing ?? this.isCapturing,
       isProcessing: isProcessing ?? this.isProcessing,
       skeletonPoints: skeletonPoints ?? this.skeletonPoints,
@@ -66,23 +72,29 @@ class DeafToHearingNotifier extends StateNotifier<DeafToHearingState> {
   final _ttsService = TtsService();
   StreamSubscription<List<String>>? _glossSubscription;
 
+  bool _isProcessingFrame = false;
+
   /// Called every camera frame while capturing.
   /// Extracts keypoints via MediaPipe, feeds to LSTM buffer,
   /// and updates skeleton overlay.
-  void onCameraFrame(dynamic cameraImage, double previewW, double previewH) {
-    if (!state.isCapturing) return;
+  void onCameraFrame(dynamic cameraImage, double previewW, double previewH, {int sensorOrientation = 90}) {
+    if (!state.isCapturing || _isProcessingFrame) return;
+    _isProcessingFrame = true;
 
-    final keypoints = _mediaPipe.extractKeypoints(cameraImage);
-    _gestureService.addFrame(keypoints);
+    _gestureService.addFrameFromCameraAsync(cameraImage, sensorOrientation).then((keypoints) {
+      if (!mounted) return;
+      _isProcessingFrame = false;
 
-    // Update skeleton overlay for UI
-    final skeleton = _mediaPipe.getHandLandmarkPositions(
-      keypoints,
-      Size(previewW, previewH),
-    );
-    if (mounted) {
+      // Update skeleton overlay for UI
+      final skeleton = _mediaPipe.getHandLandmarkPositions(
+        keypoints,
+        Size(previewW, previewH),
+      );
       state = state.copyWith(skeletonPoints: skeleton);
-    }
+    }).catchError((e) {
+      _isProcessingFrame = false;
+      debugPrint('[DeafToHearing] Frame processing error: $e');
+    });
   }
 
   void startCapture() {
@@ -129,11 +141,12 @@ class DeafToHearingNotifier extends StateNotifier<DeafToHearingState> {
   }
 
   Future<void> _refineCurrentGloss(List<String> gloss) async {
-    state = state.copyWith(isProcessing: true);
-    final sentence = await _gemmaService.refineGloss(gloss);
+    state = state.copyWith(isProcessing: true, clearAiSuggestion: true);
+    final result = await _gemmaService.refineGlossWithEmpathy(gloss);
     if (mounted) {
       state = state.copyWith(
-        refinedSentence: sentence,
+        refinedSentence: result.sentence,
+        aiSuggestion: result.aiSuggestion,
         isProcessing: false,
       );
     }
@@ -218,6 +231,13 @@ class HearingToDeafNotifier extends StateNotifier<HearingToDeafState> {
     );
 
     try {
+      // Reload Whisper jika sebelumnya di-unload (setelah Gemma dipakai)
+      if (!_sttService.isLoaded) {
+        debugPrint('[STT] Reloading Whisper model before recording...');
+        await _sttService.initialize();
+        debugPrint('[STT] Whisper reloaded');
+      }
+
       // Check permission
       final hasPermission = await _recorder.hasPermission();
       if (!hasPermission) {
@@ -328,10 +348,15 @@ class HearingToDeafNotifier extends StateNotifier<HearingToDeafState> {
         state = state.copyWith(rawTranscription: transcription);
       }
 
-      // Step 2: Summarize via Gemma LLM
-      debugPrint('[STT] Summarizing via Gemma...');
-      final summary = await _gemmaService.summarizeSpeech(transcription);
-      debugPrint('[STT] Summary: "$summary"');
+      // Unload Whisper dulu sebelum panggil Gemma — keduanya tidak bisa aktif
+      // bersamaan tanpa OOM pada Pixel 6a. Whisper reload otomatis saat rekam berikutnya.
+      debugPrint('[STT] Unloading Whisper to free RAM before Gemma...');
+      await _sttService.dispose();
+
+      // Step 2: Simplify via Gemma LLM for Deaf user
+      debugPrint('[STT] Simplifying via Gemma...');
+      final summary = await _gemmaService.simplifyForDeaf(transcription);
+      debugPrint('[STT] Simplified: "$summary"');
 
       if (mounted) {
         state = state.copyWith(

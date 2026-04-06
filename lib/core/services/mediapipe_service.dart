@@ -2,6 +2,8 @@ import 'dart:math';
 import 'dart:typed_data';
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
+import 'package:google_mlkit_pose_detection/google_mlkit_pose_detection.dart';
+import 'package:hand_landmarker/hand_landmarker.dart';
 
 /// Bounding box hasil dari MediaPipe hand landmarks (normalized 0.0–1.0).
 class HandBoundingBox {
@@ -53,10 +55,7 @@ class CropResult {
   });
 }
 
-/// MediaPipe hand landmark stub service.
-///
-/// When real MediaPipe is integrated via platform channel,
-/// replace extractKeypoints() and the mock methods.
+/// Real MediaPipe service using google_mlkit_pose_detection + hand_landmarker.
 ///
 /// Keypoint layout (258 floats total):
 ///   [0..131]   = 33 pose landmarks × 4 (x, y, z, visibility)
@@ -68,23 +67,170 @@ class MediaPipeService {
   MediaPipeService._internal();
 
   bool _isActive = false;
-  final Random _random = Random();
+  bool _isInitialized = false;
 
-  void startCapture() => _isActive = true;
-  void stopCapture() => _isActive = false;
+  // ML Kit Pose Detector
+  PoseDetector? _poseDetector;
+
+  // Hand Landmarker plugin
+  HandLandmarkerPlugin? _handLandmarker;
+
+  // Cache last extracted keypoints for overlay
+  List<double> _lastKeypoints = List.filled(258, 0.0);
+
+  void startCapture() {
+    _isActive = true;
+    _initializeIfNeeded();
+  }
+
+  void stopCapture() {
+    _isActive = false;
+  }
+
   bool get isActive => _isActive;
 
+  /// Initialize detectors lazily.
+  void _initializeIfNeeded() {
+    if (_isInitialized) return;
+
+    // Pose detector — accurate mode for better quality
+    _poseDetector = PoseDetector(
+      options: PoseDetectorOptions(
+        mode: PoseDetectionMode.stream,
+      ),
+    );
+
+    // Hand landmarker — detect up to 2 hands
+    try {
+      _handLandmarker = HandLandmarkerPlugin.create(
+        numHands: 2,
+        minHandDetectionConfidence: 0.5,
+        delegate: HandLandmarkerDelegate.gpu,
+      );
+    } catch (e) {
+      debugPrint('[MediaPipe] Failed to create HandLandmarker (GPU), trying CPU: $e');
+      try {
+        _handLandmarker = HandLandmarkerPlugin.create(
+          numHands: 2,
+          minHandDetectionConfidence: 0.5,
+          delegate: HandLandmarkerDelegate.cpu,
+        );
+      } catch (e2) {
+        debugPrint('[MediaPipe] Failed to create HandLandmarker (CPU): $e2');
+      }
+    }
+
+    _isInitialized = true;
+    debugPrint('[MediaPipe] Initialized: pose=${_poseDetector != null}, hand=${_handLandmarker != null}');
+  }
+
   /// Extract 258 keypoints from a camera frame.
-  /// STUB — replace with MediaPipe Tasks platform channel.
-  List<double> extractKeypoints(CameraImage frame) {
+  /// Uses ML Kit for pose + hand_landmarker for hands.
+  ///
+  /// Returns synchronously with cached result if detection is still processing.
+  Future<List<double>> extractKeypointsAsync(CameraImage frame, int sensorOrientation) async {
     if (!_isActive) return List.filled(258, 0.0);
-    return _mockKeypoints();
+
+    final keypoints = List<double>.filled(258, 0.0);
+
+    // --- Pose Detection (33 landmarks × 4) ---
+    if (_poseDetector != null) {
+      try {
+        final inputImage = _cameraImageToInputImage(frame, sensorOrientation);
+        if (inputImage != null) {
+          final poses = await _poseDetector!.processImage(inputImage);
+          if (poses.isNotEmpty) {
+            final pose = poses.first;
+            // Fill 33 pose landmarks
+            for (final type in PoseLandmarkType.values) {
+              final landmark = pose.landmarks[type];
+              if (landmark != null) {
+                final idx = type.index * 4;
+                if (idx + 3 < 132) {
+                  // Normalize to 0-1 range using frame dimensions
+                  keypoints[idx] = (landmark.x / frame.width).clamp(0.0, 1.0);
+                  keypoints[idx + 1] = (landmark.y / frame.height).clamp(0.0, 1.0);
+                  keypoints[idx + 2] = landmark.z / 1000.0; // z is in mm, normalize
+                  keypoints[idx + 3] = landmark.likelihood;
+                }
+              }
+            }
+          }
+        }
+      } catch (e) {
+        debugPrint('[MediaPipe] Pose detection error: $e');
+      }
+    }
+
+    // --- Hand Landmark Detection (21 landmarks × 3 per hand) ---
+    if (_handLandmarker != null) {
+      try {
+        final hands = _handLandmarker!.detect(frame, sensorOrientation);
+        if (hands.isNotEmpty) {
+          for (int handIdx = 0; handIdx < hands.length && handIdx < 2; handIdx++) {
+            final hand = hands[handIdx];
+            // Determine if left or right hand
+            // hand_landmarker returns handedness — first hand goes to right (195), second to left (132)
+            // If only one hand, put it in right hand slot (more common for signing)
+            final int baseIdx;
+            if (hands.length == 1) {
+              baseIdx = 195; // right hand slot
+            } else {
+              baseIdx = handIdx == 0 ? 195 : 132; // first=right, second=left
+            }
+
+            final landmarks = hand.landmarks;
+            for (int i = 0; i < landmarks.length && i < 21; i++) {
+              final lm = landmarks[i];
+              final idx = baseIdx + i * 3;
+              if (idx + 2 < 258) {
+                keypoints[idx] = lm.x;     // already normalized 0-1
+                keypoints[idx + 1] = lm.y; // already normalized 0-1
+                keypoints[idx + 2] = lm.z; // depth
+              }
+            }
+          }
+        }
+      } catch (e) {
+        debugPrint('[MediaPipe] Hand detection error: $e');
+      }
+    }
+
+    _lastKeypoints = keypoints;
+    return keypoints;
+  }
+
+  /// Synchronous version — returns last cached keypoints.
+  /// For backward compatibility with existing code that calls extractKeypoints.
+  List<double> extractKeypoints(CameraImage frame) {
+    // Return last cached keypoints since async detection runs separately
+    return List.from(_lastKeypoints);
+  }
+
+  /// Convert CameraImage to ML Kit InputImage.
+  InputImage? _cameraImageToInputImage(CameraImage image, int sensorOrientation) {
+    try {
+      final format = InputImageFormatValue.fromRawValue(image.format.raw);
+      if (format == null) return null;
+
+      final plane = image.planes.first;
+      return InputImage.fromBytes(
+        bytes: plane.bytes,
+        metadata: InputImageMetadata(
+          size: Size(image.width.toDouble(), image.height.toDouble()),
+          rotation: InputImageRotationValue.fromRawValue(sensorOrientation) ??
+              InputImageRotation.rotation0deg,
+          format: format,
+          bytesPerRow: plane.bytesPerRow,
+        ),
+      );
+    } catch (e) {
+      debugPrint('[MediaPipe] InputImage conversion error: $e');
+      return null;
+    }
   }
 
   /// Compute hand bounding box from MediaPipe keypoints.
-  ///
-  /// Tries right hand first (index 195–257), then left hand (132–194).
-  /// Each hand has 21 landmarks × 3 values (x, y, z).
   HandBoundingBox? getBoundingBox(List<double> keypoints) {
     // Try right hand first
     var bbox = _bboxFromLandmarks(keypoints, startIdx: 195, stride: 3, count: 21);
@@ -127,9 +273,6 @@ class MediaPipeService {
   }
 
   /// Crop the hand region from a YUV420 camera frame.
-  ///
-  /// Extracts Y plane (grayscale) only → output as RGBA where R=G=B=Y.
-  /// The result can be fed directly to AlphabetService.classifyFromCrop().
   CropResult? cropHand({
     required CameraImage frame,
     required HandBoundingBox bbox,
@@ -173,8 +316,7 @@ class MediaPipeService {
     }
   }
 
-  /// Crop hand from a JPEG image (decoded to RGBA).
-  /// For use with takePicture() fallback.
+  /// Crop hand from RGBA image data.
   CropResult? cropHandFromRGBA({
     required Uint8List rgba,
     required int imageWidth,
@@ -230,34 +372,21 @@ class MediaPipeService {
       if (base + 1 < keypoints.length) {
         final x = keypoints[base] * canvasSize.width;
         final y = keypoints[base + 1] * canvasSize.height;
-        positions.add(Offset(x, y));
+        if (keypoints[base] != 0.0 || keypoints[base + 1] != 0.0) {
+          positions.add(Offset(x, y));
+        }
       }
     }
     return positions;
   }
 
-  // ── Mock keypoints for stub mode ───────────────────────────
-  List<double> _mockKeypoints() {
-    final kp = <double>[];
-    // 33 pose landmarks × 4
-    for (int i = 0; i < 33; i++) {
-      kp.add(0.3 + _random.nextDouble() * 0.4); // x
-      kp.add(0.2 + _random.nextDouble() * 0.6); // y
-      kp.add(_random.nextDouble() * 0.1 - 0.05); // z
-      kp.add(0.8 + _random.nextDouble() * 0.2); // visibility
-    }
-    // 21 left hand landmarks × 3
-    for (int i = 0; i < 21; i++) {
-      kp.add(0.2 + _random.nextDouble() * 0.3); // x
-      kp.add(0.3 + _random.nextDouble() * 0.4); // y
-      kp.add(_random.nextDouble() * 0.05);        // z
-    }
-    // 21 right hand landmarks × 3
-    for (int i = 0; i < 21; i++) {
-      kp.add(0.4 + _random.nextDouble() * 0.3); // x
-      kp.add(0.3 + _random.nextDouble() * 0.4); // y
-      kp.add(_random.nextDouble() * 0.05);        // z
-    }
-    return kp; // total 258
+  /// Dispose detectors.
+  Future<void> dispose() async {
+    _poseDetector?.close();
+    _handLandmarker?.dispose();
+    _poseDetector = null;
+    _handLandmarker = null;
+    _isInitialized = false;
+    _isActive = false;
   }
 }

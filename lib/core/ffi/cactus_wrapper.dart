@@ -205,7 +205,8 @@ class CactusTranscriber {
     }
   }
 
-  /// Whisper prompt template with language token.
+  /// Whisper prompt — <|notimestamps|> WAJIB ada, tanpanya model generate
+  /// timestamp tokens (<|0.00|>...<|1.50|>) yang di-filter jadi response kosong.
   static String _whisperPrompt(String language) =>
       '<|startoftranscript|><|$language|><|transcribe|><|notimestamps|>';
 
@@ -222,8 +223,8 @@ class CactusTranscriber {
     try {
       final handle = _handle!;
       final prompt = _whisperPrompt(language);
-      final options = jsonEncode({'language': language});
-      debugPrint('[CactusTranscriber] Using prompt: $prompt');
+      final options = jsonEncode({'max_tokens': 2048, 'completion_mode': 'local'});
+      debugPrint('[CactusTranscriber] transcribeFile: lang=$language prompt=$prompt');
       final resultJson = await Isolate.run(() {
         return cactusTranscribe(handle, audioPath, prompt, options, null, null);
       });
@@ -254,7 +255,7 @@ class CactusTranscriber {
     try {
       final handle = _handle!;
       final prompt = _whisperPrompt(language);
-      final options = jsonEncode({'language': language});
+      final options = jsonEncode({'max_tokens': 2048, 'completion_mode': 'local'});
       final resultJson = await Isolate.run(() {
         return cactusTranscribe(handle, null, prompt, options, null, pcmData);
       });

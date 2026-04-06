@@ -18,20 +18,19 @@ class ModelManager {
   // Pre-converted model URLs hosted on HuggingFace
   static const _modelUrls = {
     ModelType.gemmaLLM:
-        'https://huggingface.co/haipradana/kawan-isyarat-gemma-c/resolve/main/gemma-4-E2B-it-int4.zip',
+        'https://huggingface.co/Cactus-Compute/gemma-4-E2B-it/resolve/main/weights/gemma-4-e2b-it-int4.zip',
     ModelType.whisperSTT:
-        'https://huggingface.co/Cactus-Compute/whisper-base/resolve/main/weights/whisper-base-int8.zip'
-        // 'https://huggingface.co/haipradana/kawan-isyarat-gemma-c/resolve/main/whisper-tiny-id-cactus.zip'
+        'https://huggingface.co/Cactus-Compute/whisper-base/resolve/main/weights/whisper-base-int8.zip',
   };
 
   static const _modelDirNames = {
-    ModelType.gemmaLLM: 'gemma-4-E2B-it-int4',
+    ModelType.gemmaLLM: 'gemma-4-e2b-it-int4',
     ModelType.whisperSTT: 'whisper-base-int8',
   };
 
   static const _modelDisplayNames = {
     ModelType.gemmaLLM: 'Gemma 4 E2B (AI Bahasa)',
-    ModelType.whisperSTT: 'Whisper Tiny ID (Speech-to-Text)',
+    ModelType.whisperSTT: 'Whisper Base INT8 (Speech-to-Text)',
   };
 
   String? _modelsBasePath;
@@ -191,6 +190,7 @@ class ModelManager {
 
   /// Extract a zip file to a directory.
   /// Uses system unzip command for efficiency.
+  /// Handles nested directories: if zip extracts a single subfolder, moves contents up.
   Future<void> _extractZip(String zipPath, String destPath) async {
     final destDir = Directory(destPath);
     if (!await destDir.exists()) {
@@ -201,6 +201,31 @@ class ModelManager {
     final result = await Process.run('unzip', ['-o', zipPath, '-d', destPath]);
     if (result.exitCode != 0) {
       throw Exception('Failed to extract zip: ${result.stderr}');
+    }
+
+    // Check if config.txt is directly in destPath
+    final configDirect = File('$destPath/config.txt');
+    if (await configDirect.exists()) return; // Good, flat extraction
+
+    // If not, check for a single subfolder containing config.txt
+    // (some zips extract as folder/config.txt instead of config.txt)
+    final entries = await destDir.list().toList();
+    if (entries.length == 1 && entries.first is Directory) {
+      final subDir = entries.first as Directory;
+      final subConfig = File('${subDir.path}/config.txt');
+      if (await subConfig.exists()) {
+        // Move all files from subfolder up to destPath
+        await for (final entity in subDir.list()) {
+          final name = entity.path.split('/').last;
+          if (entity is File) {
+            await entity.rename('$destPath/$name');
+          } else if (entity is Directory) {
+            await Process.run('mv', [entity.path, '$destPath/$name']);
+          }
+        }
+        // Remove now-empty subfolder
+        await subDir.delete(recursive: true);
+      }
     }
   }
 

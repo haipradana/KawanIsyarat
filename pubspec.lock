@@ -432,6 +432,22 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "0.3.3+1"
+  google_mlkit_commons:
+    dependency: "direct main"
+    description:
+      name: google_mlkit_commons
+      sha256: "9990a65f407a3ef6bae646bf10143faa93fec126683771465bc6c0b43fb0e6e9"
+      url: "https://pub.dev"
+    source: hosted
+    version: "0.8.1"
+  google_mlkit_pose_detection:
+    dependency: "direct main"
+    description:
+      name: google_mlkit_pose_detection
+      sha256: "24d92165cbb57c44d5c1e83f07cee3299cb62603c5d28f61a96c808a76a46763"
+      url: "https://pub.dev"
+    source: hosted
+    version: "0.12.1"
   google_sign_in:
     dependency: "direct main"
     description:
@@ -480,6 +496,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "2.3.2"
+  hand_landmarker:
+    dependency: "direct main"
+    description:
+      name: hand_landmarker
+      sha256: c4cc26a6cd805e8586479eb0fc6e015c3bdfe98da8d8cbb0d49e845fb32bf3d8
+      url: "https://pub.dev"
+    source: hosted
+    version: "2.2.0"
   hive:
     dependency: "direct main"
     description:
@@ -560,6 +584,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "1.0.5"
+  jni:
+    dependency: transitive
+    description:
+      name: jni
+      sha256: "8706a77e94c76fe9ec9315e18949cc9479cc03af97085ca9c1077b61323ea12d"
+      url: "https://pub.dev"
+    source: hosted
+    version: "0.15.2"
   js:
     dependency: transitive
     description:

@@ -86,6 +86,14 @@ class GestureService {
     addFrame(keypoints);
   }
 
+  /// Add a frame from camera image with async MediaPipe extraction.
+  /// Returns the extracted keypoints for overlay rendering.
+  Future<List<double>> addFrameFromCameraAsync(dynamic cameraImage, int sensorOrientation) async {
+    final keypoints = await _mediaPipe.extractKeypointsAsync(cameraImage, sensorOrientation);
+    addFrame(keypoints);
+    return keypoints;
+  }
+
   /// Predict gesture from current buffer using LSTM.
   /// Returns null if buffer not full or confidence too low.
   GestureResult? predict() {

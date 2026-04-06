@@ -3,7 +3,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:go_router/go_router.dart';
-import 'package:audioplayers/audioplayers.dart';
 import '../../../app/constants.dart';
 import '../../../shared/widgets/kawan_app_bar.dart';
 
@@ -22,12 +21,8 @@ class CommHearingToDeafScreen extends ConsumerStatefulWidget {
 
 class _CommHearingToDeafScreenState
     extends ConsumerState<CommHearingToDeafScreen> {
-  final _player = AudioPlayer();
-  bool _isPlaying = false;
-
   @override
   void dispose() {
-    _player.dispose();
     super.dispose();
   }
   Widget build(BuildContext context) {
@@ -115,67 +110,6 @@ class _CommHearingToDeafScreenState
               ),
             ).animate().fadeIn(duration: 400.ms, delay: 400.ms),
 
-            // Debug: Play recording & WAV info
-            if (state.lastRecordingPath != null) ...[              SizedBox(height: AppSpacing.lg),
-              Container(
-                width: double.infinity,
-                padding: EdgeInsets.all(AppSpacing.lg),
-                decoration: BoxDecoration(
-                  color: AppColors.surfaceContainerLow,
-                  borderRadius: BorderRadius.circular(AppRadius.md),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'DEBUG AUDIO',
-                      style: GoogleFonts.plusJakartaSans(
-                        fontSize: 10,
-                        fontWeight: FontWeight.w700,
-                        color: AppColors.textSecondary,
-                        letterSpacing: 1.5,
-                      ),
-                    ),
-                    SizedBox(height: 8),
-                    if (state.debugWavInfo != null)
-                      Text(
-                        state.debugWavInfo!,
-                        style: GoogleFonts.jetBrainsMono(
-                          fontSize: 12,
-                          color: AppColors.textSecondary,
-                        ),
-                      ),
-                    SizedBox(height: 8),
-                    ElevatedButton.icon(
-                      onPressed: () async {
-                        if (_isPlaying) {
-                          await _player.stop();
-                          setState(() => _isPlaying = false);
-                        } else {
-                          await _player.play(
-                            DeviceFileSource(state.lastRecordingPath!),
-                          );
-                          setState(() => _isPlaying = true);
-                          _player.onPlayerComplete.listen((_) {
-                            if (mounted) setState(() => _isPlaying = false);
-                          });
-                        }
-                      },
-                      icon: Icon(
-                        _isPlaying ? Icons.stop : Icons.play_arrow,
-                        size: 18,
-                      ),
-                      label: Text(_isPlaying ? 'Stop' : 'Putar Rekaman'),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: AppColors.primaryDark,
-                        foregroundColor: Colors.white,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-
             SizedBox(height: AppSpacing.xxxl),
           ],
         ),
@@ -247,7 +181,7 @@ class _CommHearingToDeafScreenState
               ),
               SizedBox(width: 6),
               Text(
-                'INTISARI CERDAS',
+                'TEKS UNTUK TEMAN TULI',
                 style: GoogleFonts.plusJakartaSans(
                   fontSize: 11,
                   fontWeight: FontWeight.w700,
@@ -284,7 +218,7 @@ class _CommHearingToDeafScreenState
             Text(
               state.smartSummary.isNotEmpty
                   ? state.smartSummary
-                  : 'Ringkasan cerdas akan muncul di sini...',
+                  : 'Teks yang sudah disederhanakan akan muncul di sini...',
               style: GoogleFonts.plusJakartaSans(
                 fontSize: state.smartSummary.isNotEmpty ? 22 : 15,
                 fontWeight: state.smartSummary.isNotEmpty

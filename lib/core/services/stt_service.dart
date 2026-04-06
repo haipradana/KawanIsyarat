@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'dart:typed_data';
 import 'package:flutter/foundation.dart';
 import '../ffi/cactus_wrapper.dart';
@@ -31,12 +32,28 @@ class SttService {
 
       onProgress?.call(0.3);
 
+      // Verify model directory exists and has config.txt
+      final modelDir = Directory(modelPath);
+      if (!await modelDir.exists()) {
+        throw Exception('Model directory not found: $modelPath');
+      }
+      final configFile = File('$modelPath/config.txt');
+      if (!await configFile.exists()) {
+        // List what's actually in the directory for debugging
+        final files = await modelDir.list().map((e) => e.path.split('/').last).toList();
+        debugPrint('[SttService] Model dir contents: $files');
+        throw Exception('config.txt not found in $modelPath. Files: $files');
+      }
+      debugPrint('[SttService] Loading Whisper model from: $modelPath');
+
       _transcriber = CactusTranscriber();
       await _transcriber!.load(modelPath);
 
       onProgress?.call(1.0);
       _isLoaded = true;
+      debugPrint('[SttService] Whisper model loaded successfully');
     } catch (e) {
+      debugPrint('[SttService] Failed to load Whisper model: $e');
       _isLoading = false;
       _transcriber = null;
       rethrow;
