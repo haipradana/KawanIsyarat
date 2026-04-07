@@ -1,12 +1,16 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_gemma/flutter_gemma.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'app/router.dart';
 import 'app/theme.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Initialize flutter_gemma (LiteRT LM backend) — wajib sebelum plugin dipakai
+  await FlutterGemma.initialize();
 
   // Initialize Hive for local storage
   await Hive.initFlutter();

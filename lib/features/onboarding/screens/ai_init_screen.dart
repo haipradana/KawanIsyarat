@@ -89,9 +89,9 @@ class _AIInitScreenState extends ConsumerState<AIInitScreen> {
                   _buildModelCard(
                     model: ModelType.gemmaLLM,
                     icon: Icons.psychology_rounded,
-                    name: 'Gemma 4 E2B (INT4)',
-                    desc: 'Model AI bahasa untuk menerjemahkan gloss isyarat menjadi kalimat natural.',
-                    size: '~5 GB',
+                    name: 'Gemma 4 E2B (LiteRT LM)',
+                    desc: 'Model AI bahasa via LiteRT LM (MediaPipe GenAI). Terjemahkan gloss isyarat & hasilkan saran empatik.',
+                    size: '~2.6 GB',
                     isReady: _llmReady,
                     aiState: aiState,
                     phaseMatch: [
@@ -189,7 +189,7 @@ class _AIInitScreenState extends ConsumerState<AIInitScreen> {
               SizedBox(width: 8),
               Expanded(
                 child: Text(
-                  'Pastikan terhubung ke WiFi. Total download ~5.2 GB.',
+                  'Pastikan terhubung ke WiFi. Total download ~2.9 GB.',
                   style: GoogleFonts.beVietnamPro(
                     fontSize: 12,
                     color: AppColors.warning,

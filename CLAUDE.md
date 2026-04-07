@@ -22,21 +22,41 @@ Mikrofon → **Whisper STT** → unload Whisper → **Gemma 4** simplifikasi →
 | Komponen | Detail |
 |---|---|
 | Framework | Flutter + Riverpod + GoRouter |
-| LLM | Gemma 4 E2B INT4 via **Cactus SDK** (FFI) |
-| STT | Whisper Base INT8 via **Cactus SDK** (FFI) |
+| LLM | Gemma 4 E2B via **flutter_gemma** (LiteRT LM / MediaPipe GenAI) — ~676MB RAM GPU |
+| STT | Whisper Base INT8 via **Cactus SDK** (FFI) — tetap Cactus, tidak ada alternatif LiteRT |
 | Gesture | MediaPipe (pose 33 landmarks + hand 21 landmarks) → LSTM TFLite |
 | Alphabet | YOLO11n (`yolo_alphabet_sign_int8.tflite`) 26 huruf A-Z |
 | State | Riverpod `StateNotifierProvider` |
 
+### Migrasi Gemma: Cactus → flutter_gemma (LiteRT LM)
+- **Kenapa migrasi:** Cactus Gemma 4 E2B INT4 (~2GB RAM) OOM di Pixel 6a bahkan setelah Whisper di-unload
+- **Solusi:** flutter_gemma menggunakan MediaPipe GenAI backend (LiteRT) — terbukti jalan di Pixel 6a via AI Edge Gallery (~676MB RAM, ~3.2s response, GPU+CPU)
+- **Model format:** `.litertlm` (LiteRT-LM native format, ~2.58GB) — ini yang dipakai AI Edge Gallery di Pixel 6a
+- **Model URL baru:** `https://huggingface.co/litert-community/gemma-4-E2B-it-litert-lm/resolve/main/gemma-4-E2B-it.litertlm`
+- **Kenapa `.litertlm` bukan `.task`:** `.task` adalah format web/browser (MediaPipe WASM), `.litertlm` adalah LiteRT-LM native untuk Android — support GPU/NPU, dipakai oleh AI Edge Gallery
+- **Kode Cactus Gemma:** dicomment di `gemma_service.dart`, bisa direstore untuk device RAM ≥ 8GB
+
 ---
 
-## Cactus SDK — Hal Penting
+## Model URLs & Paths
 
-### Model URLs (sudah didownload ke HP)
+### URLs Saat Ini
 ```
-Gemma:   https://huggingface.co/Cactus-Compute/gemma-4-E2B-it/resolve/main/weights/gemma-4-e2b-it-int4.zip
-Whisper: https://huggingface.co/Cactus-Compute/whisper-base/resolve/main/weights/whisper-base-int8.zip
+Gemma (LiteRT-LM):    https://huggingface.co/litert-community/gemma-4-E2B-it-litert-lm/resolve/main/gemma-4-E2B-it.litertlm
+Whisper (Cactus zip):  https://huggingface.co/Cactus-Compute/whisper-base/resolve/main/weights/whisper-base-int8.zip
 ```
+Path di HP: `/data/user/0/com.kawanisyarat.kawan_isyarat/app_flutter/cactus_models/`
+- Gemma: `.../cactus_models/gemma-4-e2b-it.litertlm` (single file ~2.58GB)
+- Whisper: `.../cactus_models/whisper-base-int8/` (directory, extracted dari zip)
+
+### Gemma URL lama (Cactus, disabled):
+```
+https://huggingface.co/Cactus-Compute/gemma-4-E2B-it/resolve/main/weights/gemma-4-e2b-it-int4.zip
+```
+
+## Cactus SDK — Hal Penting (Whisper Only)
+
+### Cactus masih dipakai untuk Whisper
 Path di HP: `/data/user/0/com.kawanisyarat.kawan_isyarat/app_flutter/cactus_models/`
 
 ### Whisper Prompt (WAJIB persis ini)
@@ -129,12 +149,30 @@ LSTM model: `assets/models/bisindo_gesture.tflite`, 30-frame window, 32+ kelas B
 |---|---|
 | Download model (Gemma + Whisper) | ✅ Bekerja |
 | Whisper STT transkripsi | ✅ Bekerja (`cloud_handoff: true` — perlu internet) |
-| Gemma gloss → kalimat | ✅ Bekerja |
-| Contextual Empathy (AI suggestion) | ✅ Implemented, belum ditest penuh |
-| Gemma simplifyForDeaf | ❌ Force close di Pixel 6a — Gemma 4 E2B terlalu besar (~2GB) bahkan setelah Whisper di-unload. Butuh HP RAM lebih besar. |
+| Gemma gloss → kalimat | ✅ Bekerja (via flutter_gemma LiteRT) |
+| Contextual Empathy (AI suggestion) | ✅ Implemented, belum ditest penuh dengan LiteRT |
+| Gemma simplifyForDeaf | ⚠️ Diimplementasi via flutter_gemma, belum ditest (sebelumnya force close di Pixel 6a dengan Cactus) |
 | MediaPipe real detection | ✅ Implemented, belum ditest end-to-end |
 | YOLO alphabet | ✅ Bekerja |
 | `cloud_handoff: true` Whisper | ⚠️ Masih terjadi — `completion_mode: local` belum terbukti fix |
+
+---
+
+## Optimasi Cactus (TODO — nanti setelah LiteRT LM jalan)
+
+Cactus Gemma & Whisper sebelumnya **tidak mengaktifkan NPU/GPU** sama sekali — jalan CPU murni.
+Yang perlu dicoba kalau mau balik/optimize Cactus:
+
+1. **`enable_pro: true`** di options JSON → aktifkan NPU/GPU Cactus
+   ```dart
+   // Di CactusModel.complete() dan CactusTranscriber.transcribeFile():
+   final options = {'max_tokens': ..., 'enable_pro': true, ...};
+   ```
+2. **Kuantisasi sudah benar**: Gemma INT4 ✅, Whisper INT8 ✅ — tidak perlu diubah
+3. **NPU Cactus** sudah **LANDING** di `cactus-compute/cactus-flutter` commit "Adding NPU support (#29)" ~4 bulan lalu — bukan "Coming" lagi. Cek API-nya di README terbaru sebelum implementasi.
+4. **Memory management** sudah benar (dispose, singleton, model swap) ✅
+
+→ Prioritas: LiteRT LM dulu, Cactus optimization belakangan.
 
 ---
 

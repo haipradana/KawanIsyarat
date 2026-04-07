@@ -15,21 +15,25 @@ class ModelManager {
   factory ModelManager() => _instance;
   ModelManager._internal();
 
-  // Pre-converted model URLs hosted on HuggingFace
+  // Model URLs
+  // Gemma: LiteRT LM .task format via flutter_gemma (MediaPipe GenAI backend)
+  // Whisper: Cactus SDK format (zip with weights)
   static const _modelUrls = {
     ModelType.gemmaLLM:
-        'https://huggingface.co/Cactus-Compute/gemma-4-E2B-it/resolve/main/weights/gemma-4-e2b-it-int4.zip',
+        'https://huggingface.co/litert-community/gemma-4-E2B-it-litert-lm/resolve/main/gemma-4-E2B-it.litertlm',
     ModelType.whisperSTT:
         'https://huggingface.co/Cactus-Compute/whisper-base/resolve/main/weights/whisper-base-int8.zip',
   };
 
   static const _modelDirNames = {
-    ModelType.gemmaLLM: 'gemma-4-e2b-it-int4',
+    // Gemma: file-based (.litertlm), stored as this filename directly
+    ModelType.gemmaLLM: 'gemma-4-e2b-it.litertlm',
+    // Whisper: dir-based (Cactus zip extraction)
     ModelType.whisperSTT: 'whisper-base-int8',
   };
 
   static const _modelDisplayNames = {
-    ModelType.gemmaLLM: 'Gemma 4 E2B (AI Bahasa)',
+    ModelType.gemmaLLM: 'Gemma 4 E2B LiteRT-LM (AI Bahasa)',
     ModelType.whisperSTT: 'Whisper Base INT8 (Speech-to-Text)',
   };
 
@@ -46,7 +50,9 @@ class ModelManager {
   /// Get the display name for a model type.
   String getDisplayName(ModelType type) => _modelDisplayNames[type] ?? 'Unknown';
 
-  /// Get the local directory path for a model.
+  /// Get the local path for a model.
+  /// Gemma → single .task file path
+  /// Whisper → directory path
   Future<String> getModelPath(ModelType type) async {
     final base = await _basePath;
     return '$base/${_modelDirNames[type]}';
@@ -55,16 +61,22 @@ class ModelManager {
   /// Check if a model is already downloaded and ready.
   Future<bool> isModelReady(ModelType type) async {
     final modelPath = await getModelPath(type);
+    if (type == ModelType.gemmaLLM) {
+      // Gemma: cek file utama DAN sentinel .done
+      // Sentinel ditulis hanya setelah download 100% sukses.
+      // Tanpa ini, file partial (mis. 500MB dari 2.58GB) dianggap ready → load gagal.
+      final doneFile = File('$modelPath.done');
+      return File(modelPath).existsSync() && doneFile.existsSync();
+    }
+    // Whisper is a directory
     final dir = Directory(modelPath);
     if (!await dir.exists()) return false;
-
-    // Check if directory has files (not empty)
     final files = await dir.list().toList();
     return files.isNotEmpty;
   }
 
   /// Get total estimated download size for both models.
-  String get estimatedTotalSize => '~5.2 GB';
+  String get estimatedTotalSize => '~2.1 GB';
 
   /// Download a model with progress callback.
   /// Supports resume — if a partial .zip exists, it continues from where it left off.
@@ -75,6 +87,21 @@ class ModelManager {
   }) async {
     final url = _modelUrls[type]!;
     final modelPath = await getModelPath(type);
+
+    // Gemma: single .litertlm file — download directly (no zip)
+    if (type == ModelType.gemmaLLM) {
+      // Hapus sentinel lama kalau ada (dari download sebelumnya yang corrupt)
+      final doneFile = File('$modelPath.done');
+      if (await doneFile.exists()) await doneFile.delete();
+
+      await _downloadFile(url, modelPath, onProgress: onProgress);
+
+      // Tulis sentinel — tandai download 100% selesai
+      await doneFile.writeAsString('ok');
+      return modelPath;
+    }
+
+    // Whisper: zip-based Cactus model
     final modelDir = Directory(modelPath);
 
     // Check if already downloaded and extracted
@@ -185,6 +212,97 @@ class ModelManager {
       // DON'T delete partial zip — keep it for resume on retry!
       // Only delete if extraction failed (zip is likely corrupt)
       rethrow;
+    }
+  }
+
+  /// Download a single file directly (no zip extraction).
+  /// Supports resume — if a partial file exists, continues from where it left off.
+  /// Returns the local path to the downloaded file.
+  Future<String> _downloadFile(
+    String url,
+    String destPath, {
+    void Function(double progress, String status)? onProgress,
+  }) async {
+    // Create base directory if needed
+    final baseDir = Directory(await _basePath);
+    if (!await baseDir.exists()) {
+      await baseDir.create(recursive: true);
+    }
+
+    final destFile = File(destPath);
+
+    // Check for existing partial download
+    int existingBytes = 0;
+    if (await destFile.exists()) {
+      existingBytes = await destFile.length();
+      if (existingBytes > 1024 * 1024) {
+        onProgress?.call(0.0, 'Melanjutkan download (${(existingBytes / 1024 / 1024).toStringAsFixed(0)} MB sudah ada)...');
+      }
+    } else {
+      onProgress?.call(0.0, 'Menghubungkan ke server...');
+    }
+
+    final client = http.Client();
+    try {
+      final request = http.Request('GET', Uri.parse(url));
+
+      // Add Range header for resume
+      if (existingBytes > 0) {
+        request.headers['Range'] = 'bytes=$existingBytes-';
+      }
+
+      final response = await client.send(request);
+
+      final bool isResume = response.statusCode == 206 && existingBytes > 0;
+      final bool isFull = response.statusCode == 200;
+
+      if (!isResume && !isFull) {
+        throw Exception('Download failed: HTTP ${response.statusCode}');
+      }
+
+      // If server returned 200 instead of 206, restart from scratch
+      if (isFull && existingBytes > 0) {
+        existingBytes = 0;
+        await destFile.delete();
+      }
+
+      // Calculate total size
+      int totalBytes;
+      if (isResume) {
+        final contentRange = response.headers['content-range'] ?? '';
+        final match = RegExp(r'/(\d+)').firstMatch(contentRange);
+        totalBytes = match != null
+            ? int.parse(match.group(1)!)
+            : (existingBytes + (response.contentLength ?? 0));
+      } else {
+        totalBytes = response.contentLength ?? 0;
+      }
+
+      var receivedBytes = existingBytes;
+      final sink = destFile.openWrite(mode: isResume ? FileMode.append : FileMode.write);
+
+      await for (final chunk in response.stream) {
+        sink.add(chunk);
+        receivedBytes += chunk.length;
+        if (totalBytes > 0) {
+          final progress = receivedBytes / totalBytes;
+          final mbReceived = (receivedBytes / 1024 / 1024).toStringAsFixed(0);
+          final mbTotal = (totalBytes / 1024 / 1024).toStringAsFixed(0);
+          onProgress?.call(
+            progress,
+            '${isResume ? "Melanjutkan" : "Mengunduh"} $mbReceived/$mbTotal MB',
+          );
+        } else {
+          final mbReceived = (receivedBytes / 1024 / 1024).toStringAsFixed(0);
+          onProgress?.call(0.5, 'Mengunduh $mbReceived MB...');
+        }
+      }
+
+      await sink.close();
+      onProgress?.call(1.0, 'Selesai!');
+      return destPath;
+    } finally {
+      client.close();
     }
   }
 
