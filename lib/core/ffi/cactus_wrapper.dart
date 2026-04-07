@@ -223,7 +223,19 @@ class CactusTranscriber {
     try {
       final handle = _handle!;
       final prompt = _whisperPrompt(language);
-      final options = jsonEncode({'max_tokens': 2048, 'completion_mode': 'local'});
+      // Optimasi RAM untuk Pixel 6a (6GB):
+      // - n_ctx: 512 → kurangi KV cache window (default 4096+ makan RAM banyak)
+      // - memory_f32: false → KV cache FP16 bukan FP32 (hemat 50% KV cache RAM)
+      // - batch_size: 1 → proses 1 token per batch (kurangi memory spike)
+      // - n_threads: 4 → pakai 4 dari 8 core (sisakan headroom untuk system/GPU)
+      final options = jsonEncode({
+        'max_tokens': 2048,
+        'completion_mode': 'local',
+        'n_ctx': 512,
+        'memory_f32': false,
+        'batch_size': 1,
+        'n_threads': 4,
+      });
       debugPrint('[CactusTranscriber] transcribeFile: lang=$language prompt=$prompt');
       final resultJson = await Isolate.run(() {
         return cactusTranscribe(handle, audioPath, prompt, options, null, null);
@@ -255,7 +267,14 @@ class CactusTranscriber {
     try {
       final handle = _handle!;
       final prompt = _whisperPrompt(language);
-      final options = jsonEncode({'max_tokens': 2048, 'completion_mode': 'local'});
+      final options = jsonEncode({
+        'max_tokens': 2048,
+        'completion_mode': 'local',
+        'n_ctx': 512,
+        'memory_f32': false,
+        'batch_size': 1,
+        'n_threads': 4,
+      });
       final resultJson = await Isolate.run(() {
         return cactusTranscribe(handle, null, prompt, options, null, pcmData);
       });

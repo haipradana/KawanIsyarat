@@ -163,13 +163,15 @@ LSTM model: `assets/models/bisindo_gesture.tflite`, 30-frame window, 32+ kelas B
 Cactus Gemma & Whisper sebelumnya **tidak mengaktifkan NPU/GPU** sama sekali — jalan CPU murni.
 Yang perlu dicoba kalau mau balik/optimize Cactus:
 
-1. **`enable_pro: true`** di options JSON → aktifkan NPU/GPU Cactus
+1. **NPU via Pro Key** — bukan `enable_pro: true` di options JSON (asumsi lama salah).
+   API yang benar (satu kali di app startup):
    ```dart
-   // Di CactusModel.complete() dan CactusTranscriber.transcribeFile():
-   final options = {'max_tokens': ..., 'enable_pro': true, ...};
+   CactusConfig.setProKey("your-pro-key");
    ```
-2. **Kuantisasi sudah benar**: Gemma INT4 ✅, Whisper INT8 ✅ — tidak perlu diubah
-3. **NPU Cactus** sudah **LANDING** di `cactus-compute/cactus-flutter` commit "Adding NPU support (#29)" ~4 bulan lalu — bukan "Coming" lagi. Cek API-nya di README terbaru sebelum implementasi.
+   Pro key didapat dengan menghubungi `founders@cactuscompute.com`.
+   Tanpa key → CPU-only. Dengan key → NPU/GPU otomatis aktif untuk semua cactusComplete/cactusTranscribe.
+2. **Kuantisasi sudah benar**: Whisper Base INT8 ✅ — tidak perlu diubah
+3. **NPU Cactus** sudah landing di PR #29 (merged Des 2025) — tapi butuh Pro Key
 4. **Memory management** sudah benar (dispose, singleton, model swap) ✅
 
 → Prioritas: LiteRT LM dulu, Cactus optimization belakangan.
