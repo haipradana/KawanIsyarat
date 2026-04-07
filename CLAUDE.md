@@ -131,7 +131,7 @@ LSTM model: `assets/models/bisindo_gesture.tflite`, 30-frame window, 32+ kelas B
 | Whisper STT transkripsi | ✅ Bekerja (`cloud_handoff: true` — perlu internet) |
 | Gemma gloss → kalimat | ✅ Bekerja |
 | Contextual Empathy (AI suggestion) | ✅ Implemented, belum ditest penuh |
-| Gemma simplifyForDeaf | ✅ Implemented, model swap strategy |
+| Gemma simplifyForDeaf | ❌ Force close di Pixel 6a — Gemma 4 E2B terlalu besar (~2GB) bahkan setelah Whisper di-unload. Butuh HP RAM lebih besar. |
 | MediaPipe real detection | ✅ Implemented, belum ditest end-to-end |
 | YOLO alphabet | ✅ Bekerja |
 | `cloud_handoff: true` Whisper | ⚠️ Masih terjadi — `completion_mode: local` belum terbukti fix |
@@ -142,8 +142,12 @@ LSTM model: `assets/models/bisindo_gesture.tflite`, 30-frame window, 32+ kelas B
 
 1. **Whisper local inference** — `cloud_handoff: true` masih terjadi. Kemungkinan Whisper base INT8 butuh pendekatan lain untuk force local. Investigasi key lain di options JSON Cactus.
 2. **End-to-end Deaf→Hearing** — MediaPipe + LSTM + Gemma empathy belum ditest full dengan tangan nyata.
-3. **Reload Whisper latency** — model swap (~2-3s reload) belum diukur UX-nya.
-4. **TTS** — `TtsService` belum diverifikasi bekerja setelah kalimat dari Gemma.
+3. **Gemma untuk Hearing→Deaf tidak jalan di Pixel 6a** — Gemma 4 E2B INT4 butuh ~2GB RAM, melebihi limit Pixel 6a bahkan setelah Whisper di-unload (OOM/force close). Solusi:
+   - Opsi A: Skip Gemma untuk Hearing→Deaf, tampilkan raw Whisper transcription langsung (sudah cukup baik)
+   - Opsi B: Test di HP dengan RAM ≥ 8GB (e.g. Pixel 8 Pro, Samsung S23+)
+   - Opsi C: Pakai model Gemma yang lebih kecil (belum ada di Cactus-Compute HuggingFace)
+4. **Reload Whisper latency** — model swap (~2-3s reload) belum diukur UX-nya.
+5. **TTS** — `TtsService` belum diverifikasi bekerja setelah kalimat dari Gemma.
 
 ---
 
@@ -162,9 +166,26 @@ flutter analyze --no-fatal-infos
 
 ---
 
-## Catatan Hackathon
+## Konteks Hackathon — BACA INI DULU
 
-- **Wajib pakai Gemma 4** — semua fitur LLM harus via Cactus SDK + Gemma 4 E2B
-- Cactus SDK adalah **bonus prize** — pastikan tetap dipakai
+### Lomba: Gemma 4 Good Hackathon (Kaggle)
+- URL: https://www.kaggle.com/competitions/google-gemma-4-good-hackathon
+- **Gemma 4 adalah WAJIB** — semua fitur AI/LLM HARUS menggunakan Gemma 4 via Cactus SDK
+- **JANGAN pernah skip/nonaktifkan Gemma** meski device tidak kuat — kode harus tetap memanggil Gemma, device yang perlu diupgrade
+- **Cactus SDK** adalah bonus prize category — pastikan tetap dipakai dan prominently disebutkan
 - BISINDO = Bahasa Isyarat Indonesia (berbeda dari SIBI)
-- Target demo: kedua flow berjalan end-to-end di Pixel 6a offline (kecuali download model)
+
+### Kenapa Gemma 4 Dipilih untuk Fitur Ini
+1. **Deaf→Hearing**: Gemma menerjemahkan gloss + menambahkan saran empatik ("world knowledge" Gemma untuk fasilitasi komunikasi berempati) — ini nilai utama submission
+2. **Hearing→Deaf**: Gemma membersihkan/menyederhanakan transkripsi Whisper (filler words, inakurasi) supaya lebih mudah dipahami orang Tuli
+
+### Keterbatasan Hardware Saat Ini
+- Dev device: **Pixel 6a** (6GB RAM) — tidak cukup untuk Gemma 4 E2B INT4 (~2GB) + Whisper bersamaan
+- Gemma untuk Hearing→Deaf flow OOM/force close di Pixel 6a
+- **Solusi untuk demo/judging**: pakai HP dengan RAM ≥ 8GB (Pixel 8 Pro, Samsung S23+, dll)
+- Kode sudah benar — model swap strategy sudah diimplementasi, tinggal butuh device lebih baik
+
+### Untuk Demo Submission
+- Target demo: kedua flow berjalan end-to-end **offline** di device RAM ≥ 8GB
+- Download model hanya sekali (butuh internet), setelah itu fully offline
+- Fitur unggulan untuk submission: **Contextual Empathy** (Gemma generates empathic suggestion for hearing person)

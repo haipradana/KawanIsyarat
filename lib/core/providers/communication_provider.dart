@@ -348,12 +348,12 @@ class HearingToDeafNotifier extends StateNotifier<HearingToDeafState> {
         state = state.copyWith(rawTranscription: transcription);
       }
 
-      // Unload Whisper dulu sebelum panggil Gemma — keduanya tidak bisa aktif
-      // bersamaan tanpa OOM pada Pixel 6a. Whisper reload otomatis saat rekam berikutnya.
+      // Unload Whisper dulu sebelum panggil Gemma — model swap untuk hemat RAM.
+      // Pixel 6a OOM jika keduanya aktif bersamaan. Whisper reload saat rekam berikutnya.
       debugPrint('[STT] Unloading Whisper to free RAM before Gemma...');
       await _sttService.dispose();
 
-      // Step 2: Simplify via Gemma LLM for Deaf user
+      // Step 2: Simplify via Gemma 4 for Deaf user (wajib untuk hackathon)
       debugPrint('[STT] Simplifying via Gemma...');
       final summary = await _gemmaService.simplifyForDeaf(transcription);
       debugPrint('[STT] Simplified: "$summary"');
