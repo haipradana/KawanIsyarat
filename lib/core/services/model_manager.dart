@@ -23,10 +23,10 @@ class ModelManager {
         'https://huggingface.co/litert-community/gemma-4-E2B-it-litert-lm/resolve/main/gemma-4-E2B-it.litertlm',
     ModelType.whisperSTT:
         'https://huggingface.co/Cactus-Compute/whisper-base/resolve/main/weights/whisper-base-int8.zip',
-    // whisper-tiny-id-cactus: generate 182 token tapi response kosong — semua token difilter Cactus.
-    // Kemungkinan format output fine-tuned model berbeda dari yang Cactus harapkan.
-    // Perlu investigasi format konversi GGML-nya sebelum bisa dipakai.
-    // 'https://huggingface.co/haipradana/kawan-isyarat-gemma-c/resolve/main/whisper-tiny-id-cactus.zip',
+    // whisper-tiny-id (converted via cactus CLI) — tidak kompatibel dengan whisper.cpp Cactus.
+    // Segments selalu kosong (decode 400+ token tapi semua difilter) meski prompt diubah.
+    // Kemungkinan cahya/whisper-tiny-id punya output format berbeda dari standard Whisper.
+    // 'https://huggingface.co/haipradana/kawan-isyarat-gemma-c/resolve/main/whisper-tiny-id-cactus-int8.zip',
   };
 
   static const _modelDirNames = {
