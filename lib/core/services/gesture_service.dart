@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:math';
+import 'package:flutter/foundation.dart';
 import 'package:tflite_flutter/tflite_flutter.dart';
 import 'package:flutter/services.dart';
 import 'dart:convert';
@@ -36,6 +37,7 @@ class GestureService {
   Stream<List<String>> get glossStream => _glossController.stream;
   bool get isCapturing => _isCapturing;
   bool get isModelLoaded => _isModelLoaded;
+  int get bufferLength => _frameBuffer.length;
 
   /// Load the LSTM model and label map from assets.
   Future<void> initialize() async {
@@ -47,6 +49,9 @@ class GestureService {
         'assets/models/bisindo_gesture.tflite',
         options: InterpreterOptions()..threads = 4,
       );
+      debugPrint('[GestureService] LSTM model loaded OK');
+      debugPrint('[GestureService] Input tensors: ${_lstmInterpreter!.getInputTensors()}');
+      debugPrint('[GestureService] Output tensors: ${_lstmInterpreter!.getOutputTensors()}');
 
       // Load label map
       final jsonStr = await rootBundle.loadString(
@@ -54,10 +59,12 @@ class GestureService {
       );
       final Map<String, dynamic> raw = json.decode(jsonStr);
       _labelMap = raw.map((k, v) => MapEntry(int.parse(k), v as String));
+      debugPrint('[GestureService] Labels loaded: ${_labelMap.length} classes');
 
       _isModelLoaded = true;
-    } catch (e) {
-      // Model files not yet present — service will work in mock mode
+    } catch (e, st) {
+      debugPrint('[GestureService] LSTM load FAILED: $e');
+      debugPrint('[GestureService] Stack: $st');
       _isModelLoaded = false;
     }
   }
@@ -117,6 +124,13 @@ class GestureService {
     final probs = (output[0] as List).cast<double>();
     final maxIdx = probs.indexOf(probs.reduce(max));
     final confidence = probs[maxIdx];
+
+    // Debug: top 3 predictions
+    final indexed = probs.asMap().entries.toList()
+      ..sort((a, b) => b.value.compareTo(a.value));
+    final top3 = indexed.take(3).map((e) =>
+      '${_labelMap[e.key] ?? "?"}(${(e.value * 100).toStringAsFixed(1)}%)');
+    debugPrint('[GestureService] predict: top3=[${ top3.join(', ')}] buf=${_frameBuffer.length}');
 
     if (confidence < _confidenceThreshold) return null;
 

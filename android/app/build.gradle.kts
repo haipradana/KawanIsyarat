@@ -11,6 +11,10 @@ android {
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
 
+    aaptOptions {
+        noCompress += "tflite"
+    }
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
@@ -43,12 +47,6 @@ android {
     }
 }
 
-// Exclude standalone tasks-vision AAR — flutter_gemma pulls tasks-vision-image-generator
-// which is a superset containing the same classes. Without this, Gradle fails with
-// "Duplicate class com.google.mediapipe.tasks.vision.*" at checkDebugDuplicateClasses.
-configurations.all {
-    exclude(group = "com.google.mediapipe", module = "tasks-vision")
-}
 
 dependencies {
     implementation(platform("com.google.firebase:firebase-bom:34.11.0"))

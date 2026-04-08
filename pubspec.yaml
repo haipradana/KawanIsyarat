@@ -32,7 +32,7 @@ dependencies:
   google_mlkit_pose_detection: ^0.12.0
   google_mlkit_commons: ^0.8.0
   hand_landmarker: ^2.1.2
-  flutter_gemma: ^0.13.2
+  # flutter_gemma removed — using Cactus SDK for Gemma. Re-add if switching back to LiteRT LM.
 
 dev_dependencies:
   flutter_test:

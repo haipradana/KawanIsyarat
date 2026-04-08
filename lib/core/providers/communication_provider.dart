@@ -70,9 +70,22 @@ class DeafToHearingNotifier extends StateNotifier<DeafToHearingState> {
   final _mediaPipe = MediaPipeService();
   final _gemmaService = GemmaService();
   final _ttsService = TtsService();
-  StreamSubscription<List<String>>? _glossSubscription;
 
   bool _isProcessingFrame = false;
+  bool _isRefining = false;
+
+  /// Initialize gesture services (LSTM model + MediaPipe).
+  /// Call once from screen initState after camera is ready.
+  Future<void> initializeServices() async {
+    debugPrint('[DeafToHearing] Initializing GestureService...');
+    try {
+      await _gestureService.initialize();
+      debugPrint('[DeafToHearing] LSTM model loaded: ${_gestureService.isModelLoaded}');
+    } catch (e, st) {
+      debugPrint('[DeafToHearing] initializeServices FAILED: $e');
+      debugPrint('[DeafToHearing] Stack: $st');
+    }
+  }
 
   /// Called every camera frame while capturing.
   /// Extracts keypoints via MediaPipe, feeds to LSTM buffer,
@@ -98,57 +111,61 @@ class DeafToHearingNotifier extends StateNotifier<DeafToHearingState> {
   }
 
   void startCapture() {
+    if (!_gestureService.isModelLoaded) {
+      state = state.copyWith(
+        errorMessage: 'Model LSTM belum dimuat. Restart halaman ini.',
+      );
+      return;
+    }
+
     state = state.copyWith(
       isCapturing: true,
       currentGloss: [],
       refinedSentence: '',
       errorMessage: null,
+      clearAiSuggestion: true,
     );
 
     _gestureService.startGestureCapture();
-
-    // Listen to mock gloss stream (fallback when LSTM not loaded)
-    _glossSubscription = _gestureService.glossStream.listen((gloss) {
-      state = state.copyWith(currentGloss: gloss);
-      _refineCurrentGloss(gloss);
-    });
   }
 
-  /// Stop capture and run LSTM prediction if model is loaded.
+  /// Stop capture and run LSTM prediction.
   Future<void> stopCapture() async {
     _gestureService.stopGestureCapture();
-    _glossSubscription?.cancel();
 
-    if (_gestureService.isModelLoaded) {
-      // Real LSTM path
-      state = state.copyWith(isCapturing: false, isProcessing: true);
+    state = state.copyWith(isCapturing: false, isProcessing: true);
+    debugPrint('[DeafToHearing] LSTM predict: buffer=${_gestureService.bufferLength} frames');
 
-      final result = _gestureService.predict();
-      if (result != null) {
-        final glossList = [result.word];
-        state = state.copyWith(currentGloss: glossList);
-        await _refineCurrentGloss(glossList);
-      } else {
-        state = state.copyWith(
-          isProcessing: false,
-          errorMessage: 'Isyarat kurang jelas. Coba lagi.',
-        );
-      }
+    final result = _gestureService.predict();
+    if (result != null) {
+      debugPrint('[DeafToHearing] LSTM result: "${result.word}" (${(result.confidence * 100).toStringAsFixed(1)}%)');
+      final glossList = [result.word];
+      state = state.copyWith(currentGloss: glossList);
+      await _refineCurrentGloss(glossList);
     } else {
-      // Mock mode — just stop
-      state = state.copyWith(isCapturing: false);
+      debugPrint('[DeafToHearing] LSTM result: null (below threshold or no interpreter)');
+      state = state.copyWith(
+        isProcessing: false,
+        errorMessage: 'Isyarat kurang jelas. Coba lagi.',
+      );
     }
   }
 
   Future<void> _refineCurrentGloss(List<String> gloss) async {
+    if (_isRefining) return; // Cactus native model tidak thread-safe
+    _isRefining = true;
     state = state.copyWith(isProcessing: true, clearAiSuggestion: true);
-    final result = await _gemmaService.refineGlossWithEmpathy(gloss);
-    if (mounted) {
-      state = state.copyWith(
-        refinedSentence: result.sentence,
-        aiSuggestion: result.aiSuggestion,
-        isProcessing: false,
-      );
+    try {
+      final result = await _gemmaService.refineGlossWithEmpathy(gloss);
+      if (mounted) {
+        state = state.copyWith(
+          refinedSentence: result.sentence,
+          aiSuggestion: result.aiSuggestion,
+          isProcessing: false,
+        );
+      }
+    } finally {
+      _isRefining = false;
     }
   }
 
@@ -160,7 +177,6 @@ class DeafToHearingNotifier extends StateNotifier<DeafToHearingState> {
 
   @override
   void dispose() {
-    _glossSubscription?.cancel();
     _gestureService.stopGestureCapture();
     super.dispose();
   }

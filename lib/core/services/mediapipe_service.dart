@@ -169,15 +169,13 @@ class MediaPipeService {
         if (hands.isNotEmpty) {
           for (int handIdx = 0; handIdx < hands.length && handIdx < 2; handIdx++) {
             final hand = hands[handIdx];
-            // Determine if left or right hand
-            // hand_landmarker returns handedness — first hand goes to right (195), second to left (132)
-            // If only one hand, put it in right hand slot (more common for signing)
-            final int baseIdx;
-            if (hands.length == 1) {
-              baseIdx = 195; // right hand slot
-            } else {
-              baseIdx = handIdx == 0 ? 195 : 132; // first=right, second=left
-            }
+            // HandLandmarkerPlugin tidak expose handedness label.
+            // Gunakan wrist x-position sebagai proxy — matches MediaPipe training behavior:
+            //   wrist.x < 0.5 → kiri frame → "Left" di MediaPipe → slot lh (132-194)
+            //   wrist.x >= 0.5 → kanan frame → "Right" di MediaPipe → slot rh (195-257)
+            // Ini cocok dengan training code: label=="Left" → lh, else → rh.
+            final wristX = hand.landmarks.isNotEmpty ? hand.landmarks[0].x : 0.5;
+            final int baseIdx = wristX < 0.5 ? 132 : 195;
 
             final landmarks = hand.landmarks;
             for (int i = 0; i < landmarks.length && i < 21; i++) {
@@ -207,27 +205,63 @@ class MediaPipeService {
     return List.from(_lastKeypoints);
   }
 
-  /// Convert CameraImage to ML Kit InputImage.
+  /// Convert CameraImage (YUV420) to ML Kit InputImage via NV21.
+  /// ML Kit on Android requires NV21 format — YUV420 multi-plane must be merged.
   InputImage? _cameraImageToInputImage(CameraImage image, int sensorOrientation) {
     try {
-      final format = InputImageFormatValue.fromRawValue(image.format.raw);
-      if (format == null) return null;
+      final rotation = InputImageRotationValue.fromRawValue(sensorOrientation) ??
+          InputImageRotation.rotation0deg;
 
-      final plane = image.planes.first;
+      // Merge YUV420 planes → NV21 (Y plane + interleaved VU)
+      final nv21 = _yuv420ToNv21(image);
+
       return InputImage.fromBytes(
-        bytes: plane.bytes,
+        bytes: nv21,
         metadata: InputImageMetadata(
           size: Size(image.width.toDouble(), image.height.toDouble()),
-          rotation: InputImageRotationValue.fromRawValue(sensorOrientation) ??
-              InputImageRotation.rotation0deg,
-          format: format,
-          bytesPerRow: plane.bytesPerRow,
+          rotation: rotation,
+          format: InputImageFormat.nv21,
+          bytesPerRow: image.width,
         ),
       );
     } catch (e) {
       debugPrint('[MediaPipe] InputImage conversion error: $e');
       return null;
     }
+  }
+
+  /// Convert YUV420 CameraImage to NV21 byte array.
+  Uint8List _yuv420ToNv21(CameraImage image) {
+    final w = image.width;
+    final h = image.height;
+    final yPlane = image.planes[0];
+    final uPlane = image.planes[1];
+    final vPlane = image.planes[2];
+
+    final nv21 = Uint8List(w * h + (w * h ~/ 2));
+
+    // Copy Y plane row by row (handle row stride padding)
+    int yOffset = 0;
+    for (int row = 0; row < h; row++) {
+      final srcStart = row * yPlane.bytesPerRow;
+      nv21.setRange(yOffset, yOffset + w, yPlane.bytes, srcStart);
+      yOffset += w;
+    }
+
+    // Interleave V and U into NV21 (VU order)
+    final uvHeight = h ~/ 2;
+    final uvWidth = w ~/ 2;
+    int uvOffset = w * h;
+    for (int row = 0; row < uvHeight; row++) {
+      for (int col = 0; col < uvWidth; col++) {
+        final vIdx = row * vPlane.bytesPerRow + col * vPlane.bytesPerPixel!;
+        final uIdx = row * uPlane.bytesPerRow + col * uPlane.bytesPerPixel!;
+        nv21[uvOffset++] = vPlane.bytes[vIdx];
+        nv21[uvOffset++] = uPlane.bytes[uIdx];
+      }
+    }
+
+    return nv21;
   }
 
   /// Compute hand bounding box from MediaPipe keypoints.

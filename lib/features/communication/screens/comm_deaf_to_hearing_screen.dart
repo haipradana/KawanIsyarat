@@ -32,6 +32,11 @@ class _CommDeafToHearingScreenState
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _initCamera();
+    // Initialize LSTM model after first frame — ensures provider is ready
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      debugPrint('[Screen] Calling initializeServices...');
+      ref.read(deafToHearingProvider.notifier).initializeServices();
+    });
   }
 
   @override
@@ -127,15 +132,18 @@ class _CommDeafToHearingScreenState
       ),
       body: SingleChildScrollView(
         physics: BouncingScrollPhysics(),
-        padding: EdgeInsets.symmetric(horizontal: AppSpacing.xxl),
         child: Column(
           children: [
-            SizedBox(height: AppSpacing.lg),
-            // Camera viewfinder with skeleton overlay
+            // Camera full-width tanpa padding samping
             _buildCameraView(state)
                 .animate()
                 .fadeIn(duration: 400.ms),
             SizedBox(height: AppSpacing.xl),
+            // Konten di bawah kamera dengan padding normal
+            Padding(
+              padding: EdgeInsets.symmetric(horizontal: AppSpacing.xxl),
+              child: Column(
+                children: [
             // Error message
             if (state.errorMessage != null)
               Container(
@@ -205,6 +213,9 @@ class _CommDeafToHearingScreenState
               },
             ).animate().fadeIn(duration: 400.ms, delay: 200.ms),
             SizedBox(height: AppSpacing.xxxl),
+                ],
+              ),
+            ),
           ],
         ),
       ),
@@ -219,7 +230,7 @@ class _CommDeafToHearingScreenState
     return ClipRRect(
       borderRadius: BorderRadius.circular(AppRadius.lg),
       child: AspectRatio(
-        aspectRatio: 4 / 3,
+        aspectRatio: 3 / 4,
         child: Container(
           decoration: BoxDecoration(
             color: Color(0xFF1A1A2E),
