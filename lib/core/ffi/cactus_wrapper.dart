@@ -131,11 +131,13 @@ class CactusModel {
   }
 
   /// Runs chat completion with the given messages.
+  /// [pcmData] — optional raw PCM audio (16-bit, 16kHz, mono) for Gemma 4 audio encoder.
   Future<CactusResponse> complete(
     List<ChatMessage> messages, {
     int maxTokens = 100,
     double temperature = 0.3,
     List<String>? stopSequences,
+    Uint8List? pcmData,
   }) async {
     if (!_isLoaded || _handle == null) {
       return CactusResponse.error('Model not loaded');
@@ -154,12 +156,17 @@ class CactusModel {
     }
     final optionsJson = jsonEncode(options);
     debugPrint('[CactusModel] Options JSON: $optionsJson');
+    if (pcmData != null) {
+      debugPrint('[CactusModel] PCM audio attached: ${pcmData.length} bytes');
+    }
 
     try {
       // Run in isolate to avoid blocking UI
       final handle = _handle!;
+      final audio = pcmData; // capture for isolate closure
       final resultJson = await Isolate.run(() {
-        return cactusComplete(handle, messagesJson, optionsJson, null, null);
+        return cactusComplete(handle, messagesJson, optionsJson, null, null,
+            pcmData: audio);
       });
 
       debugPrint('[CactusModel] Raw response: ${resultJson.length > 500 ? '${resultJson.substring(0, 500)}...' : resultJson}');

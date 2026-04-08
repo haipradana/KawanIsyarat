@@ -32,11 +32,10 @@ class _AIInitScreenState extends ConsumerState<AIInitScreen> {
   Future<void> _checkModelStatus() async {
     final mm = ModelManager();
     final llm = await mm.isModelReady(ModelType.gemmaLLM);
-    final stt = await mm.isModelReady(ModelType.whisperSTT);
     if (mounted) {
       setState(() {
         _llmReady = llm;
-        _sttReady = stt;
+        _sttReady = true; // Whisper opsional — Gemma 4 audio encoder is primary
         _checkingStatus = false;
       });
     }
@@ -90,7 +89,7 @@ class _AIInitScreenState extends ConsumerState<AIInitScreen> {
                     model: ModelType.gemmaLLM,
                     icon: Icons.psychology_rounded,
                     name: 'Gemma 4 E2B (Cactus INT4)',
-                    desc: 'Model AI bahasa via Cactus SDK. Terjemahkan gloss isyarat & hasilkan saran empatik.',
+                    desc: 'Model AI multimodal via Cactus SDK. Terjemahkan isyarat, transkripsi suara, & hasilkan saran empatik — semua dalam 1 model.',
                     size: '~4 GB',
                     isReady: _llmReady,
                     aiState: aiState,
@@ -99,22 +98,6 @@ class _AIInitScreenState extends ConsumerState<AIInitScreen> {
                       AIInitStatus.loadingLLM,
                     ],
                   ).animate().fadeIn(duration: 400.ms, delay: 100.ms),
-
-                  SizedBox(height: AppSpacing.lg),
-
-                  _buildModelCard(
-                    model: ModelType.whisperSTT,
-                    icon: Icons.mic_rounded,
-                    name: 'Whisper Tiny ID',
-                    desc: 'Model speech-to-text untuk transkripsi bahasa Indonesia secara offline.',
-                    size: '~200 MB',
-                    isReady: _sttReady,
-                    aiState: aiState,
-                    phaseMatch: [
-                      AIInitStatus.downloadingSTT,
-                      AIInitStatus.loadingSTT,
-                    ],
-                  ).animate().fadeIn(duration: 400.ms, delay: 200.ms),
 
                   SizedBox(height: AppSpacing.xxxl),
 
@@ -189,7 +172,7 @@ class _AIInitScreenState extends ConsumerState<AIInitScreen> {
               SizedBox(width: 8),
               Expanded(
                 child: Text(
-                  'Pastikan terhubung ke WiFi. Total download ~4.2 GB.',
+                  'Pastikan terhubung ke WiFi. Download ~4 GB (sekali saja).',
                   style: GoogleFonts.beVietnamPro(
                     fontSize: 12,
                     color: AppColors.warning,

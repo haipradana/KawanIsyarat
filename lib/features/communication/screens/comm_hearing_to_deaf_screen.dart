@@ -5,7 +5,6 @@ import 'package:flutter_animate/flutter_animate.dart';
 import 'package:go_router/go_router.dart';
 import '../../../app/constants.dart';
 import '../../../shared/widgets/kawan_app_bar.dart';
-
 import '../../../shared/widgets/bottom_nav_bar.dart';
 import '../../../core/providers/communication_provider.dart';
 import '../widgets/waveform_visualizer.dart';
@@ -44,6 +43,7 @@ class _CommHearingToDeafScreenState
             WaveformVisualizer(isRecording: state.isRecording)
                 .animate()
                 .fadeIn(duration: 400.ms, delay: 100.ms),
+
             SizedBox(height: AppSpacing.xxl),
 
             // Error message

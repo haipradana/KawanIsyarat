@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:io';
-import 'dart:typed_data';
 import 'dart:ui';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -10,6 +9,7 @@ import '../services/gesture_service.dart';
 import '../services/mediapipe_service.dart';
 import '../services/gemma_service.dart';
 import '../services/stt_service.dart';
+import '../services/model_manager.dart';
 import '../services/tts_service.dart';
 import '../../shared/models/conversation_entry.dart';
 import '../../shared/models/user_persona.dart';
@@ -231,12 +231,8 @@ class HearingToDeafNotifier extends StateNotifier<HearingToDeafState> {
     );
 
     try {
-      // Reload Whisper jika sebelumnya di-unload (setelah Gemma dipakai)
-      if (!_sttService.isLoaded) {
-        debugPrint('[STT] Reloading Whisper model before recording...');
-        await _sttService.initialize();
-        debugPrint('[STT] Whisper reloaded');
-      }
+      // Whisper reload tidak perlu — Gemma 4 audio encoder adalah primary.
+      // Whisper hanya di-load saat fallback (jika Gemma audio gagal).
 
       // Check permission
       final hasPermission = await _recorder.hasPermission();
@@ -304,7 +300,7 @@ class HearingToDeafNotifier extends StateNotifier<HearingToDeafState> {
       debugPrint('[STT] Audio file: $audioPath ($fileSize bytes)');
 
       // Inspect WAV header for debugging
-      String wavInfo = 'File: ${fileSize} bytes';
+      String wavInfo = 'File: $fileSize bytes';
       try {
         final headerBytes = await file.openRead(0, 44).fold<List<int>>(
           <int>[], (prev, chunk) => prev..addAll(chunk));
@@ -330,10 +326,69 @@ class HearingToDeafNotifier extends StateNotifier<HearingToDeafState> {
         );
       }
 
-      // Step 1: Transcribe via Whisper STT
-      debugPrint('[STT] Transcribing...');
-      final transcription = await _sttService.transcribeFile(audioPath);
-      debugPrint('[STT] Transcription: "$transcription"');
+      // [EKSPERIMEN] Gemma 4 audio transcription — dispose Whisper dulu biar Gemma punya full RAM.
+      // Jika gagal/kosong, reload Whisper dan fallback ke pipeline biasa.
+      String transcription = '';
+      bool usedGemmaAudio = false;
+
+      if (_gemmaService.isLoaded) {
+        // Free Whisper RAM dulu sebelum Gemma audio
+        debugPrint('[STT] [GEMMA-AUDIO] Disposing Whisper to free RAM for Gemma audio...');
+        await _sttService.dispose();
+
+        try {
+          final audioFile = File(audioPath);
+          final rawBytes = await audioFile.readAsBytes();
+          // Strip WAV header (44 bytes) — kirim raw PCM saja ke Gemma audio encoder
+          Uint8List pcmData = rawBytes.length > 44 ? rawBytes.sublist(44) : rawBytes;
+
+          // Downsample hanya jika PCM terlalu besar — cegah OOM pada audio panjang di Pixel 6a.
+          // 256KB ≈ 8s pada 16kHz 16-bit mono. Audio normal (<8s) dikirim penuh 16kHz.
+          const pcmSafeLimit = 256 * 1024; // 256 KB
+          if (pcmData.length > pcmSafeLimit) {
+            final before = pcmData.length;
+            pcmData = _downsamplePcm16Bit(pcmData);
+            debugPrint('[STT] [GEMMA-AUDIO] Downsampled ${before}B → ${pcmData.length}B (OOM guard)');
+          }
+          if (pcmData.length > pcmSafeLimit) {
+            final before = pcmData.length;
+            pcmData = _downsamplePcm16Bit(pcmData);
+            debugPrint('[STT] [GEMMA-AUDIO] 2nd downsample ${before}B → ${pcmData.length}B');
+          }
+
+          debugPrint('[STT] [GEMMA-AUDIO] Trying Gemma 4 audio (${pcmData.length} PCM bytes)...');
+
+          final gemmaResult = await _gemmaService.transcribeAudio(pcmData);
+          debugPrint('[STT] [GEMMA-AUDIO] Result: "$gemmaResult"');
+
+          if (gemmaResult.isNotEmpty) {
+            transcription = gemmaResult;
+            usedGemmaAudio = true;
+            debugPrint('[STT] [GEMMA-AUDIO] SUCCESS — using Gemma audio transcription');
+          } else {
+            debugPrint('[STT] [GEMMA-AUDIO] Empty result — falling back to Whisper');
+          }
+        } catch (e) {
+          debugPrint('[STT] [GEMMA-AUDIO] Failed: $e — falling back to Whisper');
+        }
+      }
+
+      // Fallback: Whisper STT (jika Gemma audio gagal/kosong)
+      if (!usedGemmaAudio) {
+        // Cek dulu apakah Whisper model tersedia (opsional, tidak wajib download)
+        final whisperReady = await ModelManager().isModelReady(ModelType.whisperSTT);
+        if (whisperReady) {
+          if (!_sttService.isLoaded) {
+            debugPrint('[STT] [FALLBACK] Loading Whisper...');
+            await _sttService.initialize();
+          }
+          debugPrint('[STT] [FALLBACK] Transcribing via Whisper...');
+          transcription = await _sttService.transcribeFile(audioPath);
+          debugPrint('[STT] [FALLBACK] Whisper result: "$transcription"');
+        } else {
+          debugPrint('[STT] [FALLBACK] Whisper not downloaded — no fallback available');
+        }
+      }
 
       if (transcription.isEmpty) {
         state = state.copyWith(
@@ -348,12 +403,14 @@ class HearingToDeafNotifier extends StateNotifier<HearingToDeafState> {
         state = state.copyWith(rawTranscription: transcription);
       }
 
-      // Unload Whisper dulu sebelum panggil Gemma — model swap untuk hemat RAM.
-      // Pixel 6a OOM jika keduanya aktif bersamaan. Whisper reload saat rekam berikutnya.
-      debugPrint('[STT] Unloading Whisper to free RAM before Gemma...');
-      await _sttService.dispose();
+      // Unload Whisper jika masih loaded — model swap untuk hemat RAM sebelum Gemma simplify.
+      if (_sttService.isLoaded) {
+        debugPrint('[STT] Unloading Whisper to free RAM before Gemma...');
+        await _sttService.dispose();
+      }
 
-      // Step 2: Simplify via Gemma 4 for Deaf user (wajib untuk hackathon)
+      // Step 2: Simplify via Gemma 4 for Deaf user
+      // Jika pakai Gemma audio, bisa skip simplify (sudah 1 model) — tapi tetap run untuk konsistensi.
       debugPrint('[STT] Simplifying via Gemma...');
       final summary = await _gemmaService.simplifyForDeaf(transcription);
       debugPrint('[STT] Simplified: "$summary"');
@@ -380,6 +437,24 @@ class HearingToDeafNotifier extends StateNotifier<HearingToDeafState> {
     _recorder.dispose();
     super.dispose();
   }
+}
+
+/// Downsample 16-bit mono PCM dengan averaging 2 sample berurutan.
+/// Input/output: raw PCM bytes (int16 little-endian, no WAV header).
+/// Hasilnya setengah panjang — efektif 2× speed dari perspektif Gemma audio encoder.
+/// Speech tetap intelligible karena formant utama (<4kHz) terjaga.
+Uint8List _downsamplePcm16Bit(Uint8List pcm) {
+  final bd = ByteData.sublistView(pcm);
+  final inSamples = pcm.length ~/ 2;
+  final outSamples = inSamples ~/ 2;
+  final out = ByteData(outSamples * 2);
+  for (int i = 0; i < outSamples; i++) {
+    final s1 = bd.getInt16(i * 4, Endian.little);
+    final s2 = bd.getInt16(i * 4 + 2, Endian.little);
+    final avg = ((s1 + s2) >> 1).clamp(-32768, 32767);
+    out.setInt16(i * 2, avg, Endian.little);
+  }
+  return out.buffer.asUint8List();
 }
 
 // ---- Conversation History ----

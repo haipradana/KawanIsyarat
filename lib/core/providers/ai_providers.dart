@@ -66,17 +66,18 @@ class AIInitNotifier extends StateNotifier<AIInitState> {
   final _gemmaService = GemmaService();
   final _sttService = SttService();
 
-  /// Initialize all AI models.
-  /// Downloads if needed, then loads into memory.
+  /// Initialize AI models.
+  /// Downloads Gemma 4 (required), then loads into memory.
+  /// Whisper is OPTIONAL (fallback only) — Gemma 4 audio encoder is primary STT.
   Future<void> initializeAll() async {
     if (state.isComplete || state.isWorking) return;
 
     try {
-      // Phase 1: Download LLM (Gemma 4 E2B)
+      // Phase 1: Download Gemma 4 E2B (multimodal: text + audio + vision)
       state = state.copyWith(
         status: AIInitStatus.downloadingLLM,
         progress: 0.0,
-        message: 'Memeriksa model AI Bahasa...',
+        message: 'Memeriksa model Gemma 4...',
       );
 
       final llmReady = await _modelManager.isModelReady(ModelType.gemmaLLM);
@@ -86,81 +87,42 @@ class AIInitNotifier extends StateNotifier<AIInitState> {
           onProgress: (progress, statusMsg) {
             if (mounted) {
               state = state.copyWith(
-                progress: progress * 0.4, // 0-40% for LLM download
+                progress: progress * 0.7, // 0-70% for Gemma download
                 message: statusMsg,
               );
             }
           },
         );
       } else {
-        state = state.copyWith(progress: 0.4, message: 'Model AI Bahasa sudah tersedia');
+        state = state.copyWith(progress: 0.7, message: 'Model Gemma 4 sudah tersedia');
       }
 
-      // Phase 2: Download STT (Whisper Tiny ID)
-      state = state.copyWith(
-        status: AIInitStatus.downloadingSTT,
-        message: 'Memeriksa model Speech-to-Text...',
-      );
-
-      final sttReady = await _modelManager.isModelReady(ModelType.whisperSTT);
-      if (!sttReady) {
-        await _modelManager.downloadModel(
-          ModelType.whisperSTT,
-          onProgress: (progress, statusMsg) {
-            if (mounted) {
-              state = state.copyWith(
-                progress: 0.4 + progress * 0.2, // 40-60% for STT download
-                message: statusMsg,
-              );
-            }
-          },
-        );
-      } else {
-        state = state.copyWith(
-          progress: 0.6,
-          message: 'Model Speech-to-Text sudah tersedia',
-        );
-      }
-
-      // Phase 3: Load LLM into memory
+      // Phase 2: Load Gemma 4 into memory
       state = state.copyWith(
         status: AIInitStatus.loadingLLM,
-        progress: 0.6,
-        message: 'Memuat AI Bahasa ke memori...',
+        progress: 0.7,
+        message: 'Memuat Gemma 4 ke memori...',
       );
 
       await _gemmaService.initialize(
         onProgress: (p) {
           if (mounted) {
             state = state.copyWith(
-              progress: 0.6 + p * 0.2, // 60-80%
+              progress: 0.7 + p * 0.3, // 70-100%
             );
           }
         },
       );
 
-      // Phase 4: Load STT into memory
-      state = state.copyWith(
-        status: AIInitStatus.loadingSTT,
-        progress: 0.8,
-        message: 'Memuat Speech-to-Text ke memori...',
-      );
-
-      await _sttService.initialize(
-        onProgress: (p) {
-          if (mounted) {
-            state = state.copyWith(
-              progress: 0.8 + p * 0.2, // 80-100%
-            );
-          }
-        },
-      );
+      // Whisper TIDAK di-download/load di sini.
+      // Gemma 4 audio encoder adalah primary STT.
+      // Whisper hanya di-load on-demand sebagai fallback jika Gemma audio gagal.
 
       // Done!
       state = state.copyWith(
         status: AIInitStatus.ready,
         progress: 1.0,
-        message: 'AI siap digunakan!',
+        message: 'Gemma 4 siap digunakan!',
       );
     } catch (e) {
       state = state.copyWith(

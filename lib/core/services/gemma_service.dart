@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 import 'package:flutter/foundation.dart';
 import '../ffi/cactus_wrapper.dart';
 import 'model_manager.dart';
@@ -89,6 +90,12 @@ Contoh:
 "eh jadi gitu, kamu itu eh mau makan apa hari ini?" -> "Kamu mau makan apa hari ini?"
 "maaf ya aku terlambat, jalanan macet banget tadi" -> "Maaf terlambat, jalanan macet."
 "aku cuma mau bilang makasih buat bantuannya kemarin loh" -> "Terima kasih atas bantuannya kemarin."
+''';
+
+  // System prompt untuk audio transcription via Gemma 4 audio encoder
+  static const _audioTranscribePrompt = '''
+Transkripsikan audio berikut ke dalam Bahasa Indonesia.
+Jawab HANYA dengan teks transkripsi, tanpa penjelasan atau komentar.
 ''';
 
   // ---- Cactus SDK Implementation ----
@@ -318,6 +325,89 @@ Contoh:
     'SAYA': 'Saya...',
     'TERIMA': 'Terima...',
   };
+
+  /// [EKSPERIMEN] Transkripsikan audio menggunakan Gemma 4 audio encoder.
+  /// Mengirim raw PCM (16-bit, 16kHz, mono) langsung ke cactusComplete via pcmData.
+  /// Jika berhasil, bisa menggantikan Whisper STT sepenuhnya.
+  Future<String> transcribeAudio(Uint8List pcmData) async {
+    if (pcmData.isEmpty) return '';
+    if (!_isLoaded || _model == null) {
+      debugPrint('[GemmaService] transcribeAudio: model NOT loaded');
+      return '';
+    }
+
+    try {
+      _model!.reset();
+
+      debugPrint('[GemmaService] transcribeAudio: ${pcmData.length} bytes PCM');
+
+      final response = await _model!.complete(
+        [
+          ChatMessage(role: 'system', content: _audioTranscribePrompt),
+          ChatMessage(role: 'user', content: '<|audio|>'),
+        ],
+        maxTokens: 200,
+        temperature: 0.1, // Low temperature for accurate transcription
+        stopSequences: ['\n\n', '<|channel>'],
+        pcmData: pcmData,
+      );
+
+      if (response.success && response.text.isNotEmpty) {
+        final cleaned = _cleanResponse(response.text);
+        debugPrint('[GemmaService] transcribeAudio OK: "$cleaned" '
+            '(${response.decodeTps.toStringAsFixed(1)} tok/s, '
+            '${response.totalTimeMs.toStringAsFixed(0)}ms)');
+        return cleaned;
+      } else {
+        debugPrint('[GemmaService] transcribeAudio failed: ${response.error}');
+        return '';
+      }
+    } catch (e) {
+      debugPrint('[GemmaService] transcribeAudio exception: $e');
+      return '';
+    }
+  }
+
+  /// [EKSPERIMEN] Transkripsikan audio + langsung sederhanakan untuk orang Tuli.
+  /// Menggabungkan transcribe + simplify dalam 1 inference (hemat latency).
+  Future<String> transcribeAndSimplifyAudio(Uint8List pcmData) async {
+    if (pcmData.isEmpty) return '';
+    if (!_isLoaded || _model == null) return '';
+
+    try {
+      _model!.reset();
+
+      debugPrint('[GemmaService] transcribeAndSimplify: ${pcmData.length} bytes PCM');
+
+      final response = await _model!.complete(
+        [
+          ChatMessage(
+            role: 'system',
+            content: 'Dengarkan audio berikut, lalu tuliskan transkripsinya dalam Bahasa Indonesia '
+                'yang singkat dan jelas. Hapus kata filler (eh, um, jadi, gitu). '
+                'Jawab HANYA dengan kalimat hasil.',
+          ),
+          ChatMessage(role: 'user', content: '<|audio|>'),
+        ],
+        maxTokens: 150,
+        temperature: 0.1,
+        stopSequences: ['\n\n', '<|channel>'],
+        pcmData: pcmData,
+      );
+
+      if (response.success && response.text.isNotEmpty) {
+        final cleaned = _cleanResponse(response.text);
+        debugPrint('[GemmaService] transcribeAndSimplify OK: "$cleaned" '
+            '(${response.decodeTps.toStringAsFixed(1)} tok/s, '
+            '${response.totalTimeMs.toStringAsFixed(0)}ms)');
+        return cleaned;
+      }
+      return '';
+    } catch (e) {
+      debugPrint('[GemmaService] transcribeAndSimplify exception: $e');
+      return '';
+    }
+  }
 
   Future<void> dispose() async {
     await _model?.dispose();
