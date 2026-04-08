@@ -15,29 +15,22 @@ class ModelManager {
   factory ModelManager() => _instance;
   ModelManager._internal();
 
-  // Model URLs
-  // Gemma: LiteRT LM .task format via flutter_gemma (MediaPipe GenAI backend)
-  // Whisper: Cactus SDK format (zip with weights)
+  // Model URLs — both Cactus SDK format (zip with weights)
   static const _modelUrls = {
     ModelType.gemmaLLM:
-        'https://huggingface.co/litert-community/gemma-4-E2B-it-litert-lm/resolve/main/gemma-4-E2B-it.litertlm',
+        'https://huggingface.co/Cactus-Compute/gemma-4-E2B-it/resolve/main/weights/gemma-4-e2b-it-int4.zip',
     ModelType.whisperSTT:
         'https://huggingface.co/Cactus-Compute/whisper-base/resolve/main/weights/whisper-base-int8.zip',
-    // whisper-tiny-id (converted via cactus CLI) — tidak kompatibel dengan whisper.cpp Cactus.
-    // Segments selalu kosong (decode 400+ token tapi semua difilter) meski prompt diubah.
-    // Kemungkinan cahya/whisper-tiny-id punya output format berbeda dari standard Whisper.
-    // 'https://huggingface.co/haipradana/kawan-isyarat-gemma-c/resolve/main/whisper-tiny-id-cactus-int8.zip',
   };
 
   static const _modelDirNames = {
-    // Gemma: file-based (.litertlm), stored as this filename directly
-    ModelType.gemmaLLM: 'gemma-4-e2b-it.litertlm',
-    // Whisper: dir-based (Cactus zip extraction)
+    // Both are dir-based (Cactus zip extraction)
+    ModelType.gemmaLLM: 'gemma-4-e2b-it-int4',
     ModelType.whisperSTT: 'whisper-base-int8',
   };
 
   static const _modelDisplayNames = {
-    ModelType.gemmaLLM: 'Gemma 4 E2B LiteRT-LM (AI Bahasa)',
+    ModelType.gemmaLLM: 'Gemma 4 E2B Cactus INT4 (AI Bahasa)',
     ModelType.whisperSTT: 'Whisper Base INT8 (Speech-to-Text)',
   };
 
@@ -63,16 +56,9 @@ class ModelManager {
   }
 
   /// Check if a model is already downloaded and ready.
+  /// Both models are directory-based (Cactus zip extraction).
   Future<bool> isModelReady(ModelType type) async {
     final modelPath = await getModelPath(type);
-    if (type == ModelType.gemmaLLM) {
-      // Gemma: cek file utama DAN sentinel .done
-      // Sentinel ditulis hanya setelah download 100% sukses.
-      // Tanpa ini, file partial (mis. 500MB dari 2.58GB) dianggap ready → load gagal.
-      final doneFile = File('$modelPath.done');
-      return File(modelPath).existsSync() && doneFile.existsSync();
-    }
-    // Whisper is a directory
     final dir = Directory(modelPath);
     if (!await dir.exists()) return false;
     final files = await dir.list().toList();
@@ -80,7 +66,7 @@ class ModelManager {
   }
 
   /// Get total estimated download size for both models.
-  String get estimatedTotalSize => '~2.1 GB';
+  String get estimatedTotalSize => '~4.2 GB';
 
   /// Download a model with progress callback.
   /// Supports resume — if a partial .zip exists, it continues from where it left off.
@@ -92,20 +78,7 @@ class ModelManager {
     final url = _modelUrls[type]!;
     final modelPath = await getModelPath(type);
 
-    // Gemma: single .litertlm file — download directly (no zip)
-    if (type == ModelType.gemmaLLM) {
-      // Hapus sentinel lama kalau ada (dari download sebelumnya yang corrupt)
-      final doneFile = File('$modelPath.done');
-      if (await doneFile.exists()) await doneFile.delete();
-
-      await _downloadFile(url, modelPath, onProgress: onProgress);
-
-      // Tulis sentinel — tandai download 100% selesai
-      await doneFile.writeAsString('ok');
-      return modelPath;
-    }
-
-    // Whisper: zip-based Cactus model
+    // Both models: zip-based Cactus download + extract
     final modelDir = Directory(modelPath);
 
     // Check if already downloaded and extracted

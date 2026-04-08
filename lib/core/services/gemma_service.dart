@@ -1,22 +1,23 @@
+import 'dart:convert';
+import 'dart:io';
 import 'package:flutter/foundation.dart';
-import 'package:flutter_gemma/flutter_gemma.dart' as gemma;
+import '../ffi/cactus_wrapper.dart';
 import 'model_manager.dart';
 
 // ============================================================
-// NOTE: Cactus SDK code has been commented out below.
-// Alasan: Gemma 4 E2B INT4 via Cactus terlalu berat untuk Pixel 6a (~2GB RAM)
-// → OOM/force close bahkan setelah Whisper di-unload.
-// Solusi: flutter_gemma (LiteRT LM via MediaPipe GenAI backend) hanya
-// menggunakan ~676MB RAM di GPU — terbukti jalan di Pixel 6a via AI Edge Gallery.
-// Cactus tetap dipakai untuk Whisper STT (tidak ada alternatif LiteRT).
-// Untuk mencoba kembali Cactus Gemma: uncomment kode di bawah dan
-// comment out blok flutter_gemma. Butuh device ≥ 8GB RAM.
+// NOTE: Gemma sekarang menggunakan Cactus SDK (INT4, ~4GB).
+// Optimasi RAM untuk Pixel 6a (6GB):
+// - n_ctx: 512 → kurangi KV cache (default 4096+ boros RAM)
+// - memory_f32: false → KV cache FP16 (hemat 50% KV cache RAM)
+// - batch_size: 1 → kurangi memory spike per batch
+// - n_threads: 4 → pakai 4 dari 8 core (sisakan headroom)
+//
+// flutter_gemma (LiteRT LM) code dicomment di bawah sebagai STABLE FALLBACK.
+// Jika Cactus OOM di Pixel 6a, uncomment kode flutter_gemma dan
+// comment kode Cactus di atas.
 // ============================================================
 
-// CACTUS IMPORT (disabled — too heavy for Pixel 6a):
-// import '../ffi/cactus_wrapper.dart';
-
-/// Hasil empati kontekstual dari Gemma untuk alur Tuli→Dengar.
+/// Hasil empati kontekstual dari Gemma untuk alur Tuli->Dengar.
 class EmpathyResult {
   /// Kalimat lengkap terjemahan gloss untuk lawan bicara (orang dengar).
   final String sentence;
@@ -27,23 +28,23 @@ class EmpathyResult {
   const EmpathyResult({required this.sentence, this.aiSuggestion});
 }
 
-/// flutter_gemma (LiteRT LM) Gemma service.
-/// Uses MediaPipe GenAI backend for on-device inference with GPU acceleration.
-/// Handles gloss→sentence refinement, speech summarization, and gesture feedback.
+/// Cactus SDK Gemma service.
+/// Uses Cactus FFI for on-device inference with optimized memory settings.
+/// Handles gloss->sentence refinement, speech summarization, and gesture feedback.
 class GemmaService {
   static final GemmaService _instance = GemmaService._internal();
   factory GemmaService() => _instance;
   GemmaService._internal();
 
-  // flutter_gemma model instance (LiteRT LM)
-  gemma.InferenceModel? _model;
+  // Cactus model instance
+  CactusModel? _model;
   bool _isLoaded = false;
   bool _isLoading = false;
 
   bool get isLoaded => _isLoaded;
   bool get isLoading => _isLoading;
 
-  // ---- System prompts (unchanged from Cactus version) ----
+  // ---- System prompts ----
 
   static const _systemPrompt = '''
 Kamu adalah asisten terjemahan BISINDO KawanIsyarat.
@@ -51,11 +52,11 @@ Tugasmu HANYA mengubah kata-kata gloss isyarat menjadi kalimat Bahasa Indonesia 
 Gloss dipisahkan tanda |. Jawab HANYA dengan kalimat hasil, tanpa penjelasan.
 
 Contoh:
-NAMA | SAYA | APA → Siapa nama kamu?
-TERIMA KASIH | BANTU → Terima kasih sudah membantu.
-MAKAN | BELUM | SAYA → Saya belum makan.
-HALO → Halo!
-MAAF → Maaf.
+NAMA | SAYA | APA -> Siapa nama kamu?
+TERIMA KASIH | BANTU -> Terima kasih sudah membantu.
+MAKAN | BELUM | SAYA -> Saya belum makan.
+HALO -> Halo!
+MAAF -> Maaf.
 ''';
 
   static const _empathySystemPrompt = '''
@@ -85,15 +86,15 @@ perbaiki transkripsi yang tidak akurat, buat singkat dan jelas.
 Jawab HANYA dengan kalimat hasil, tanpa penjelasan.
 
 Contoh:
-"eh jadi gitu, kamu itu eh mau makan apa hari ini?" → "Kamu mau makan apa hari ini?"
-"maaf ya aku terlambat, jalanan macet banget tadi" → "Maaf terlambat, jalanan macet."
-"aku cuma mau bilang makasih buat bantuannya kemarin loh" → "Terima kasih atas bantuannya kemarin."
+"eh jadi gitu, kamu itu eh mau makan apa hari ini?" -> "Kamu mau makan apa hari ini?"
+"maaf ya aku terlambat, jalanan macet banget tadi" -> "Maaf terlambat, jalanan macet."
+"aku cuma mau bilang makasih buat bantuannya kemarin loh" -> "Terima kasih atas bantuannya kemarin."
 ''';
 
-  // ---- flutter_gemma Implementation ----
+  // ---- Cactus SDK Implementation ----
 
-  /// Initialize the LLM model via flutter_gemma (LiteRT LM).
-  /// Registers the .task file with MediaPipe GenAI backend and loads into GPU memory.
+  /// Initialize the LLM model via Cactus SDK.
+  /// Loads Gemma 4 E2B INT4 from extracted zip directory.
   Future<void> initialize({void Function(double)? onProgress}) async {
     debugPrint('[GemmaService] initialize() called — isLoaded=$_isLoaded, isLoading=$_isLoading');
     if (_isLoaded || _isLoading) return;
@@ -106,26 +107,43 @@ Contoh:
       final modelPath = await modelManager.getModelPath(ModelType.gemmaLLM);
 
       onProgress?.call(0.2);
-      debugPrint('[GemmaService] Installing flutter_gemma model from: $modelPath');
 
-      // Register .task file with MediaPipe GenAI backend
-      await gemma.FlutterGemma.installModel(
-        modelType: gemma.ModelType.gemmaIt,
-      ).fromFile(modelPath).install();
+      // Verify model directory exists
+      final modelDir = Directory(modelPath);
+      if (!await modelDir.exists()) {
+        throw Exception('Model directory not found: $modelPath');
+      }
 
-      onProgress?.call(0.6);
+      // Verify config.txt exists
+      final configFile = File('$modelPath/config.txt');
+      if (!await configFile.exists()) {
+        final files = await modelDir.list().map((e) => e.path.split('/').last).toList();
+        debugPrint('[GemmaService] Model dir contents: $files');
+        throw Exception('config.txt not found in $modelPath. Files: $files');
+      }
 
-      // Load model — paksa GPU (XNNPack/CPU path punya bug DYNAMIC_UPDATE_SLICE
-      // di Pixel 6a). AI Edge Gallery berhasil karena pakai GPU backend.
-      _model = await gemma.FlutterGemma.getActiveModel(
-        maxTokens: 1024,
-        preferredBackend: gemma.PreferredBackend.gpu,
-      );
+      debugPrint('[GemmaService] Loading Cactus Gemma model from: $modelPath');
+      onProgress?.call(0.3);
+
+      // Optimasi RAM untuk Pixel 6a (6GB):
+      // - n_ctx: 512 → kurangi KV cache window (default 4096+)
+      // - memory_f32: false → KV cache FP16 (hemat 50% KV cache RAM)
+      // - batch_size: 1 → kurangi memory spike
+      // - n_threads: 4 → pakai 4 dari 8 core
+      final initOptions = jsonEncode({
+        'n_ctx': 512,
+        'memory_f32': false,
+        'batch_size': 1,
+        'n_threads': 4,
+      });
+
+      _model = CactusModel();
+      await _model!.load(modelPath, optionsJson: initOptions);
 
       onProgress?.call(1.0);
       _isLoaded = true;
       _isLoading = false;
-      debugPrint('[GemmaService] flutter_gemma model loaded (LiteRT GPU)');
+      debugPrint('[GemmaService] Cactus Gemma model loaded (INT4, optimized)');
     } catch (e) {
       debugPrint('[GemmaService] Failed to load Gemma model: $e');
       _isLoading = false;
@@ -135,30 +153,101 @@ Contoh:
   }
 
   /// Run a single-turn inference with the given system prompt and user message.
-  /// Creates a new chat session per call to avoid context bleed between prompts.
+  /// Uses Cactus complete() with optimized options for low-RAM devices.
   Future<String?> _infer(String systemPrompt, String userMessage) async {
     if (!_isLoaded || _model == null) return null;
 
-    final chat = await _model!.createChat(systemInstruction: systemPrompt);
     try {
-      await chat.addQueryChunk(
-        gemma.Message.text(text: userMessage, isUser: true),
+      // Reset KV cache before each inference to avoid stale state
+      _model!.reset();
+
+      final response = await _model!.complete(
+        [
+          ChatMessage(role: 'system', content: systemPrompt),
+          ChatMessage(role: 'user', content: userMessage),
+        ],
+        maxTokens: 80, // Thinking disabled — jawaban langsung, tidak perlu ruang ekstra
+        temperature: 0.3,
+        stopSequences: ['\n\n\n'], // Hanya stop di blank line ganda, bukan di <|channel>
       );
 
-      final buffer = StringBuffer();
-      await for (final chunk in chat.generateChatResponseAsync()) {
-        if (chunk is gemma.TextResponse) {
-          buffer.write(chunk.token);
-        }
+      if (response.success) {
+        final cleaned = _cleanResponse(response.text);
+        debugPrint('[GemmaService] Inference OK: ${cleaned.length} chars, '
+            '${response.decodeTps.toStringAsFixed(1)} tok/s, '
+            '${response.totalTimeMs.toStringAsFixed(0)}ms');
+        return cleaned;
+      } else {
+        debugPrint('[GemmaService] Inference failed: ${response.error}');
+        return null;
       }
-      return buffer.toString().trim();
-    } finally {
-      await chat.close();
+    } catch (e) {
+      debugPrint('[GemmaService] Exception during inference: $e');
+      return null;
     }
   }
 
-  /// Gloss list → natural Bahasa Indonesia sentence.
-  /// ["NAMA", "SAYA", "APA"] → "Siapa nama kamu?"
+  /// Run inference with more tokens (for empathy which produces 2 lines).
+  Future<String?> _inferLong(String systemPrompt, String userMessage) async {
+    if (!_isLoaded || _model == null) return null;
+
+    try {
+      // Reset KV cache before each inference to avoid stale state
+      _model!.reset();
+
+      final response = await _model!.complete(
+        [
+          ChatMessage(role: 'system', content: systemPrompt),
+          ChatMessage(role: 'user', content: userMessage),
+        ],
+        maxTokens: 150, // Thinking disabled — 2 baris jawaban langsung
+        temperature: 0.3,
+        stopSequences: ['\n\n\n'], // Hanya stop di blank line ganda
+      );
+
+      if (response.success) {
+        final cleaned = _cleanResponse(response.text);
+        debugPrint('[GemmaService] InferLong OK: ${cleaned.length} chars, '
+            '${response.decodeTps.toStringAsFixed(1)} tok/s, '
+            '${response.totalTimeMs.toStringAsFixed(0)}ms');
+        return cleaned;
+      } else {
+        debugPrint('[GemmaService] InferLong failed: ${response.error}');
+        return null;
+      }
+    } catch (e) {
+      debugPrint('[GemmaService] Exception during inferLong: $e');
+      return null;
+    }
+  }
+
+  /// Parse response — handle thinking mode output dari Gemma 4.
+  ///
+  /// Gemma 4 dengan thinking aktif menghasilkan:
+  ///   `<|channel>thought\n[reasoning]<channel|>[jawaban]`
+  ///
+  /// Kalau thinking tidak aktif, langsung menghasilkan:
+  ///   `[jawaban]`
+  ///
+  /// Kita ambil teks setelah `<channel|>` jika ada, otherwise full text.
+  String _cleanResponse(String raw) {
+    var text = raw.trim();
+
+    // Kalau ada closing thinking tag, ambil teks setelahnya (jawaban asli)
+    const closingTag = '<channel|>';
+    final closeIdx = text.indexOf(closingTag);
+    if (closeIdx >= 0) {
+      text = text.substring(closeIdx + closingTag.length).trim();
+      debugPrint('[GemmaService] Thinking detected & stripped, extracted answer');
+    }
+
+    // Bersihkan sisa special tokens kalau ada
+    text = text.replaceAll(RegExp(r'<\|[^>|]+\|?>'), '').trim();
+    return text;
+  }
+
+  /// Gloss list -> natural Bahasa Indonesia sentence.
+  /// ["NAMA", "SAYA", "APA"] -> "Siapa nama kamu?"
   Future<String> refineGloss(List<String> glossList) async {
     if (glossList.isEmpty) return '';
 
@@ -173,7 +262,7 @@ Contoh:
     return result?.isNotEmpty == true ? result! : glossList.join(' ');
   }
 
-  /// Gloss → kalimat + saran empatik untuk lawan bicara (Contextual Empathy).
+  /// Gloss -> kalimat + saran empatik untuk lawan bicara (Contextual Empathy).
   Future<EmpathyResult> refineGlossWithEmpathy(List<String> glossList) async {
     if (glossList.isEmpty) return EmpathyResult(sentence: '');
 
@@ -186,7 +275,7 @@ Contoh:
       return EmpathyResult(sentence: glossList.join(' '));
     }
 
-    final response = await _infer(_empathySystemPrompt, glossList.join(' | '));
+    final response = await _inferLong(_empathySystemPrompt, glossList.join(' | '));
     if (response == null || response.isEmpty) {
       return EmpathyResult(sentence: glossList.join(' '));
     }
@@ -231,42 +320,74 @@ Contoh:
   };
 
   Future<void> dispose() async {
-    await _model?.close();
+    await _model?.dispose();
     _model = null;
     _isLoaded = false;
   }
 }
 
 // ============================================================
-// CACTUS GEMMA CODE (disabled — terlalu berat untuk Pixel 6a):
+// STABLE FALLBACK — flutter_gemma (LiteRT LM) code.
+// Jika Cactus OOM di Pixel 6a, uncomment kode di bawah dan
+// comment kode Cactus di atas.
+// flutter_gemma menggunakan MediaPipe GenAI (LiteRT) — ~676MB RAM GPU,
+// terbukti jalan di Pixel 6a via AI Edge Gallery.
 // ============================================================
 //
-// import 'dart:io';
-// import '../ffi/cactus_wrapper.dart';
+// import 'package:flutter_gemma/flutter_gemma.dart' as gemma;
 //
-// CactusModel? _model;
+// // In main.dart, add:
+// // await FlutterGemma.initialize();
+//
+// // Model: .litertlm format (~2.58GB)
+// // URL: https://huggingface.co/litert-community/gemma-4-E2B-it-litert-lm/resolve/main/gemma-4-E2B-it.litertlm
+// // model_manager.dart: ModelType.gemmaLLM dir = 'gemma-4-e2b-it.litertlm' (single file)
+//
+// gemma.InferenceModel? _model;
 //
 // Future<void> initialize({void Function(double)? onProgress}) async {
 //   onProgress?.call(0.1);
 //   final modelManager = ModelManager();
 //   final modelPath = await modelManager.getModelPath(ModelType.gemmaLLM);
-//   onProgress?.call(0.3);
-//   final modelDir = Directory(modelPath);
-//   if (!await modelDir.exists()) throw Exception('Model not found: $modelPath');
-//   _model = CactusModel();
-//   await _model!.load(modelPath);
+//   onProgress?.call(0.2);
+//
+//   await gemma.FlutterGemma.installModel(
+//     modelType: gemma.ModelType.gemmaIt,
+//   ).fromFile(modelPath).install();
+//
+//   onProgress?.call(0.6);
+//
+//   _model = await gemma.FlutterGemma.getActiveModel(
+//     maxTokens: 1024,
+//     preferredBackend: gemma.PreferredBackend.gpu,
+//   );
+//
 //   onProgress?.call(1.0);
 //   _isLoaded = true;
 // }
 //
-// // Inference via CactusModel.complete():
-// // final response = await _model!.complete(
-// //   [ChatMessage(role: 'system', content: systemPrompt),
-// //    ChatMessage(role: 'user', content: userMsg)],
-// //   maxTokens: 80, temperature: 0.3, stopSequences: ['\n'],
-// // );
-// // return response.success ? response.text.trim() : fallback;
+// Future<String?> _infer(String systemPrompt, String userMessage) async {
+//   if (!_isLoaded || _model == null) return null;
+//   final chat = await _model!.createChat(systemInstruction: systemPrompt);
+//   try {
+//     await chat.addQueryChunk(
+//       gemma.Message.text(text: userMessage, isUser: true),
+//     );
+//     final buffer = StringBuffer();
+//     await for (final chunk in chat.generateChatResponseAsync()) {
+//       if (chunk is gemma.TextResponse) {
+//         buffer.write(chunk.token);
+//       }
+//     }
+//     return buffer.toString().trim();
+//   } finally {
+//     await chat.close();
+//   }
+// }
 //
-// // dispose:
-// // await _model?.dispose();
+// Future<void> dispose() async {
+//   await _model?.close();
+//   _model = null;
+//   _isLoaded = false;
+// }
 // ============================================================

@@ -115,12 +115,13 @@ class CactusModel {
   bool get isLoaded => _isLoaded;
 
   /// Loads a model from the given directory path.
+  /// [optionsJson] — JSON string with init-time options (n_ctx, n_threads, etc.)
   /// This is a blocking FFI call wrapped in an isolate.
-  Future<void> load(String modelPath) async {
+  Future<void> load(String modelPath, {String? optionsJson}) async {
     if (_isLoaded) return;
     try {
       _handle = await Isolate.run(() {
-        return cactusInit(modelPath, null, false);
+        return cactusInit(modelPath, optionsJson, false);
       });
       _isLoaded = true;
     } catch (e) {
@@ -144,11 +145,15 @@ class CactusModel {
     final options = <String, dynamic>{
       'max_tokens': maxTokens,
       'temperature': temperature,
+      // Disable Gemma 4 thinking mode — Cactus injects <|think|> by default.
+      // Flag: enable_thinking_if_supported (default: true) in cactus_complete.cpp
+      'enable_thinking_if_supported': false,
     };
     if (stopSequences != null && stopSequences.isNotEmpty) {
       options['stop_sequences'] = stopSequences;
     }
     final optionsJson = jsonEncode(options);
+    debugPrint('[CactusModel] Options JSON: $optionsJson');
 
     try {
       // Run in isolate to avoid blocking UI
@@ -157,7 +162,11 @@ class CactusModel {
         return cactusComplete(handle, messagesJson, optionsJson, null, null);
       });
 
+      debugPrint('[CactusModel] Raw response: ${resultJson.length > 500 ? '${resultJson.substring(0, 500)}...' : resultJson}');
       final parsed = jsonDecode(resultJson) as Map<String, dynamic>;
+      if (parsed.containsKey('thinking')) {
+        debugPrint('[CactusModel] ⚠️ THINKING DETECTED: ${(parsed['thinking'] as String?)?.substring(0, 100)}...');
+      }
       return CactusResponse.fromJson(parsed);
     } catch (e) {
       return CactusResponse.error(e.toString());
