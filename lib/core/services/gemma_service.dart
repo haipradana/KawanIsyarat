@@ -48,36 +48,12 @@ class GemmaService {
   // ---- System prompts ----
 
   static const _systemPrompt = '''
-Kamu adalah asisten terjemahan BISINDO KawanIsyarat.
-Tugasmu HANYA mengubah kata-kata gloss isyarat menjadi kalimat Bahasa Indonesia natural.
-Gloss dipisahkan tanda |. Jawab HANYA dengan kalimat hasil, tanpa penjelasan.
-
-Contoh:
-NAMA | SAYA | APA -> Siapa nama kamu?
-TERIMA KASIH | BANTU -> Terima kasih sudah membantu.
-MAKAN | BELUM | SAYA -> Saya belum makan.
-HALO -> Halo!
-MAAF -> Maaf.
+Kamu asisten terjemahan BISINDO. Ubah gloss isyarat (dipisah |) ke kalimat Bahasa Indonesia natural. Jawab HANYA kalimatnya.
+Contoh: SAYA | MAKAN | SIANG -> Saya mau makan siang.
 ''';
 
-  static const _empathySystemPrompt = '''
-Kamu adalah jembatan komunikasi empatik antara orang Tuli dan orang dengar di KawanIsyarat.
-Diberikan gloss BISINDO (kata-kata isyarat), lakukan DUA hal:
-1. Terjemahkan menjadi kalimat Bahasa Indonesia natural (1 baris).
-2. Berikan saran singkat empatik untuk lawan bicara (orang dengar), dimulai dengan "(Saran AI):".
-
-Format jawaban TEPAT seperti ini (2 baris, tanpa tambahan apapun):
-[kalimat terjemahan]
-(Saran AI): [saran untuk lawan bicara]
-
-Contoh:
-SAYA | PUSING | OBAT
-Saya merasa pusing dan butuh obat.
-(Saran AI): Tanyakan apakah dia butuh diantar ke ruang kesehatan atau minta air putih.
-
-TERIMA KASIH | BANTU
-Terima kasih sudah membantu.
-(Saran AI): Balas dengan senyum dan tanyakan apakah ada hal lain yang bisa dibantu.
+  static const _empathySuggestionPrompt = '''
+Berikan 1 saran singkat empatik untuk orang dengar yang berkomunikasi dengan orang Tuli yang mengatakan kalimat ini. Jawab 1 kalimat saja.
 ''';
 
   static const _simplifySystemPrompt = '''
@@ -194,40 +170,6 @@ Jawab HANYA dengan teks transkripsi, tanpa penjelasan atau komentar.
     }
   }
 
-  /// Run inference with more tokens (for empathy which produces 2 lines).
-  Future<String?> _inferLong(String systemPrompt, String userMessage) async {
-    if (!_isLoaded || _model == null) return null;
-
-    try {
-      // Reset KV cache before each inference to avoid stale state
-      _model!.reset();
-
-      final response = await _model!.complete(
-        [
-          ChatMessage(role: 'system', content: systemPrompt),
-          ChatMessage(role: 'user', content: userMessage),
-        ],
-        maxTokens: 150, // Thinking disabled — 2 baris jawaban langsung
-        temperature: 0.3,
-        stopSequences: ['\n\n\n'], // Hanya stop di blank line ganda
-      );
-
-      if (response.success) {
-        final cleaned = _cleanResponse(response.text);
-        debugPrint('[GemmaService] InferLong OK: ${cleaned.length} chars, '
-            '${response.decodeTps.toStringAsFixed(1)} tok/s, '
-            '${response.totalTimeMs.toStringAsFixed(0)}ms');
-        return cleaned;
-      } else {
-        debugPrint('[GemmaService] InferLong failed: ${response.error}');
-        return null;
-      }
-    } catch (e) {
-      debugPrint('[GemmaService] Exception during inferLong: $e');
-      return null;
-    }
-  }
-
   /// Parse response — handle thinking mode output dari Gemma 4.
   ///
   /// Gemma 4 dengan thinking aktif menghasilkan:
@@ -270,33 +212,25 @@ Jawab HANYA dengan teks transkripsi, tanpa penjelasan atau komentar.
   }
 
   /// Gloss -> kalimat + saran empatik untuk lawan bicara (Contextual Empathy).
+  /// Step 1: refineGloss (kalimat) — same _infer as simplifyForDeaf, cepat.
+  /// Step 2: getEmpathySuggestion (saran AI) — panggilan _infer kedua, opsional.
   Future<EmpathyResult> refineGlossWithEmpathy(List<String> glossList) async {
-    if (glossList.isEmpty) return EmpathyResult(sentence: '');
+    // Step 1: kalimat
+    final sentence = await refineGloss(glossList);
+    if (sentence.isEmpty) return EmpathyResult(sentence: '');
 
-    if (glossList.length == 1) {
-      final direct = _directMap[glossList.first.toUpperCase()];
-      if (direct != null) return EmpathyResult(sentence: direct);
+    // Step 2: saran empatik (skip jika single-word direct map)
+    if (glossList.length == 1 && _directMap.containsKey(glossList.first.toUpperCase())) {
+      return EmpathyResult(sentence: sentence);
     }
 
-    if (!_isLoaded || _model == null) {
-      return EmpathyResult(sentence: glossList.join(' '));
-    }
-
-    final response = await _inferLong(_empathySystemPrompt, glossList.join(' | '));
-    if (response == null || response.isEmpty) {
-      return EmpathyResult(sentence: glossList.join(' '));
-    }
-
-    final lines = response.split('\n');
-    final sentence = lines.isNotEmpty ? lines[0].trim() : glossList.join(' ');
-    String? suggestion;
-    for (final line in lines.skip(1)) {
-      if (line.contains('(Saran AI):')) {
-        suggestion = line.replaceFirst(RegExp(r'\(Saran AI\):\s*'), '').trim();
-        break;
-      }
-    }
+    final suggestion = await getEmpathySuggestion(sentence);
     return EmpathyResult(sentence: sentence, aiSuggestion: suggestion);
+  }
+
+  /// Saran empatik singkat untuk orang dengar berdasarkan kalimat terjemahan.
+  Future<String?> getEmpathySuggestion(String sentence) async {
+    return _infer(_empathySuggestionPrompt, sentence);
   }
 
   /// Sederhanakan transkripsi suara untuk ditampilkan ke orang Tuli.

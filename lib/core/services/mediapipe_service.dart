@@ -393,21 +393,29 @@ class MediaPipeService {
     }
   }
 
-  /// Get hand landmark screen positions for skeleton overlay.
+  /// Get hand landmark positions for skeleton overlay (normalized 0-1).
+  /// Hand landmarks dari hand_landmarker disimpan di sensor space.
+  /// Untuk portrait display (sensorOrientation=90): swap x↔y sama seperti pose.
+  /// LSTM tetap pakai keypoints asli (tidak berubah) — ini hanya untuk visual overlay.
   List<Offset> getHandLandmarkPositions(
     List<double> keypoints,
     Size canvasSize, {
     bool rightHand = true,
+    int sensorOrientation = 90,
   }) {
     final start = rightHand ? 195 : 132;
     final positions = <Offset>[];
+    final needSwap = sensorOrientation == 90 || sensorOrientation == 270;
     for (int i = 0; i < 21; i++) {
       final base = start + i * 3;
       if (base + 1 < keypoints.length) {
-        final x = keypoints[base] * canvasSize.width;
-        final y = keypoints[base + 1] * canvasSize.height;
-        if (keypoints[base] != 0.0 || keypoints[base + 1] != 0.0) {
-          positions.add(Offset(x, y));
+        final kx = keypoints[base];
+        final ky = keypoints[base + 1];
+        if (kx != 0.0 || ky != 0.0) {
+          // Swap x↔y untuk convert landscape sensor → portrait display
+          final ox = needSwap ? ky * canvasSize.width : kx * canvasSize.width;
+          final oy = needSwap ? kx * canvasSize.height : ky * canvasSize.height;
+          positions.add(Offset(ox, oy));
         }
       }
     }

@@ -98,12 +98,18 @@ class DeafToHearingNotifier extends StateNotifier<DeafToHearingState> {
       if (!mounted) return;
       _isProcessingFrame = false;
 
-      // Update skeleton overlay for UI
-      final skeleton = _mediaPipe.getHandLandmarkPositions(
-        keypoints,
-        Size(previewW, previewH),
+      // Skeleton overlay — normalized (0-1) coords: pose + both hands
+      // LSTM tetap pakai full 258 floats, overlay hanya visual
+      final pose = _getPoseSkeletonPoints(keypoints, sensorOrientation);
+      final rightHand = _mediaPipe.getHandLandmarkPositions(
+        keypoints, const Size(1.0, 1.0),
+        rightHand: true, sensorOrientation: sensorOrientation,
       );
-      state = state.copyWith(skeletonPoints: skeleton);
+      final leftHand = _mediaPipe.getHandLandmarkPositions(
+        keypoints, const Size(1.0, 1.0),
+        rightHand: false, sensorOrientation: sensorOrientation,
+      );
+      state = state.copyWith(skeletonPoints: [...pose, ...rightHand, ...leftHand]);
     }).catchError((e) {
       _isProcessingFrame = false;
       debugPrint('[DeafToHearing] Frame processing error: $e');
@@ -126,29 +132,68 @@ class DeafToHearingNotifier extends StateNotifier<DeafToHearingState> {
       clearAiSuggestion: true,
     );
 
-    _gestureService.startGestureCapture();
+    _gestureService.startGestureCapture(onWordCommitted: _onGestureWordCommitted);
   }
 
-  /// Stop capture and run LSTM prediction.
+  void _onGestureWordCommitted(GestureResult result) {
+    if (!mounted) return;
+    final newGloss = [...state.currentGloss, result.word];
+    state = state.copyWith(currentGloss: newGloss);
+    debugPrint('[DeafToHearing] Word committed: ${result.word} → gloss=${newGloss.join(" | ")}');
+  }
+
+  /// Extract pose landmarks (33) dari keypoint array untuk OVERLAY saja.
+  /// LSTM tetap pakai keypoints asli (258 floats) — method ini hanya untuk visual.
+  ///
+  /// Pose dari ML Kit disimpan dalam sensor/landscape space (karena sensorOrientation=90).
+  /// Untuk tampil di portrait canvas: swap x↔y (landscape → portrait).
+  /// Painter akan mirror x untuk front camera selfie view.
+  List<Offset> _getPoseSkeletonPoints(List<double> keypoints, int sensorOrientation) {
+    final points = <Offset>[];
+    final needSwap = sensorOrientation == 90 || sensorOrientation == 270;
+    for (int i = 0; i < 33 && i * 4 + 1 < keypoints.length; i++) {
+      final lx = keypoints[i * 4];     // landscape x (normalized)
+      final ly = keypoints[i * 4 + 1]; // landscape y (normalized)
+      if (needSwap) {
+        // Landscape → portrait: x_portrait = ly, y_portrait = lx
+        points.add(Offset(ly, lx));
+      } else {
+        points.add(Offset(lx, ly));
+      }
+    }
+    return points;
+  }
+
+  /// Stop capture. Uses words accumulated during continuous recognition,
+  /// or falls back to single predict() if nothing was committed yet.
   Future<void> stopCapture() async {
     _gestureService.stopGestureCapture();
-
     state = state.copyWith(isCapturing: false, isProcessing: true);
-    debugPrint('[DeafToHearing] LSTM predict: buffer=${_gestureService.bufferLength} frames');
 
-    final result = _gestureService.predict();
-    if (result != null) {
-      debugPrint('[DeafToHearing] LSTM result: "${result.word}" (${(result.confidence * 100).toStringAsFixed(1)}%)');
-      final glossList = [result.word];
-      state = state.copyWith(currentGloss: glossList);
-      await _refineCurrentGloss(glossList);
+    List<String> glossList = List.from(state.currentGloss);
+
+    // Fallback: if no words committed via continuous, try one final predict
+    if (glossList.isEmpty) {
+      debugPrint('[DeafToHearing] No continuous words — final predict: buffer=${_gestureService.bufferLength} frames');
+      final result = _gestureService.predict();
+      if (result != null) {
+        debugPrint('[DeafToHearing] Final predict: "${result.word}" (${(result.confidence * 100).toStringAsFixed(1)}%)');
+        glossList = [result.word];
+        state = state.copyWith(currentGloss: glossList);
+      }
     } else {
-      debugPrint('[DeafToHearing] LSTM result: null (below threshold or no interpreter)');
+      debugPrint('[DeafToHearing] Gloss from continuous: ${glossList.join(" | ")}');
+    }
+
+    if (glossList.isEmpty) {
       state = state.copyWith(
         isProcessing: false,
         errorMessage: 'Isyarat kurang jelas. Coba lagi.',
       );
+      return;
     }
+
+    await _refineCurrentGloss(glossList);
   }
 
   Future<void> _refineCurrentGloss(List<String> gloss) async {
@@ -156,13 +201,21 @@ class DeafToHearingNotifier extends StateNotifier<DeafToHearingState> {
     _isRefining = true;
     state = state.copyWith(isProcessing: true, clearAiSuggestion: true);
     try {
-      final result = await _gemmaService.refineGlossWithEmpathy(gloss);
+      // Step 1: Gloss → kalimat (same _infer as simplifyForDeaf — cepat ~4-9s)
+      final sentence = await _gemmaService.refineGloss(gloss);
       if (mounted) {
         state = state.copyWith(
-          refinedSentence: result.sentence,
-          aiSuggestion: result.aiSuggestion,
-          isProcessing: false,
+          refinedSentence: sentence,
+          isProcessing: false, // Tampilkan kalimat segera
         );
+      }
+
+      // Step 2: Saran empatik (async, non-blocking — user sudah lihat kalimat)
+      if (mounted && sentence.isNotEmpty && gloss.length > 1) {
+        final suggestion = await _gemmaService.getEmpathySuggestion(sentence);
+        if (mounted && suggestion != null && suggestion.isNotEmpty) {
+          state = state.copyWith(aiSuggestion: suggestion);
+        }
       }
     } finally {
       _isRefining = false;

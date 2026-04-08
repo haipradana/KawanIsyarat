@@ -23,6 +23,7 @@ class GestureService {
 
   final _glossController = StreamController<List<String>>.broadcast();
   Timer? _timer;
+  Timer? _continuousTimer;
   final List<String> _currentGloss = [];
   bool _isCapturing = false;
 
@@ -31,6 +32,13 @@ class GestureService {
   static const int _sequenceLength = 30;
   static const int _featureDim = 258;
   static const double _confidenceThreshold = 0.65;
+
+  // Continuous prediction state
+  void Function(GestureResult)? _onWordCommitted;
+  String? _lastPredictedWord;
+  int _sameWordCount = 0;
+  bool _justCommitted = false;
+  String? _lastCommittedWord; // Dedup: prevent same word from oscillating predictions
 
   final _mediaPipe = MediaPipeService();
 
@@ -158,17 +166,55 @@ class GestureService {
   ];
 
   /// Start gesture capture — maintains backward compat.
-  /// If LSTM is loaded: starts MediaPipe + frame buffering.
+  /// If LSTM is loaded: starts MediaPipe + continuous prediction timer.
   /// If not loaded: falls back to mock gloss stream.
-  void startGestureCapture() {
+  ///
+  /// [onWordCommitted] called each time a stable word is detected (2× same prediction, >65% confidence).
+  void startGestureCapture({void Function(GestureResult)? onWordCommitted}) {
     if (_isCapturing) return;
     _isCapturing = true;
     _currentGloss.clear();
     clearBuffer();
+    _onWordCommitted = onWordCommitted;
+    _lastPredictedWord = null;
+    _sameWordCount = 0;
+    _justCommitted = false;
+    _lastCommittedWord = null;
 
     if (_isModelLoaded) {
       _mediaPipe.startCapture();
-      // Real capture happens by caller pushing camera frames via addFrame()
+      // Continuous prediction: check every 900ms for stable gestures
+      _continuousTimer = Timer.periodic(const Duration(milliseconds: 900), (_) {
+        if (!_isCapturing) return;
+        final result = predict();
+        if (result != null) {
+          if (result.word == _lastPredictedWord) {
+            _sameWordCount++;
+            // Commit: same word 2× berturut-turut, belum committed, bukan duplikat terakhir
+            if (_sameWordCount >= 2 && !_justCommitted && result.word != _lastCommittedWord) {
+              _justCommitted = true;
+              _lastCommittedWord = result.word;
+              _sameWordCount = 0;
+              debugPrint('[GestureService] Committed: ${result.word} (${(result.confidence * 100).toStringAsFixed(1)}%)');
+              _onWordCommitted?.call(result);
+            }
+          } else {
+            _justCommitted = false;
+            // Reset lastCommittedWord ketika prediksi berubah ke kata baru
+            // (allow re-commit kata sama setelah ada kata lain di-commit)
+            if (_lastCommittedWord != null && result.word != _lastCommittedWord) {
+              _lastCommittedWord = null;
+            }
+            _lastPredictedWord = result.word;
+            _sameWordCount = 1;
+          }
+        } else {
+          // Prediction below threshold — reset stability
+          _justCommitted = false;
+          _lastPredictedWord = null;
+          _sameWordCount = 0;
+        }
+      });
       return;
     }
 
@@ -199,6 +245,9 @@ class GestureService {
     _mediaPipe.stopCapture();
     _timer?.cancel();
     _timer = null;
+    _continuousTimer?.cancel();
+    _continuousTimer = null;
+    _onWordCommitted = null;
   }
 
   List<String> getCurrentGloss() => List.from(_currentGloss);
