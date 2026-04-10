@@ -295,3 +295,177 @@ flutter analyze --no-fatal-infos
   - **Contextual Empathy** (AI saran empatik)
   - **Cactus SDK** (bonus prize category)
   - **Digital Equity & Inclusivity** (BISINDO, orang Tuli)
+
+---
+
+## Hackathon Winning Strategy (April 2026)
+
+### Personal Story — KEKUATAN UTAMA
+Developer (Pradana) punya **adik yang Tuli**. App ini bukan project iseng — ini kebutuhan nyata.
+Di video, adik yang Tuli harus PAKAI app-nya di depan kamera. Bukan Pradana demo sendiri.
+Referensi pemenang sebelumnya: developer bikin device untuk saudara buta → personal, emosional.
+
+### Target Track (bisa menang BEBERAPA sekaligus)
+| Track | Prize | Strategi |
+|---|---|---|
+| **Digital Equity & Inclusivity** | $10K | BISINDO, 2 juta deaf Indonesia tanpa AI tools |
+| **Cactus** | $10K | On-device Gemma 4 via Cactus SDK |
+| **Future of Education** | $10K | Sign learning + AI coach + vocab helper |
+| **Main Track** | $50K-$10K | Tergantung "wow" factor video |
+
+### SignGemma Positioning
+Google sedang develop **SignGemma** (sign language AI) tapi belum rilis dan fokus ASL saja.
+KawanIsyarat = "We're building what SignGemma promises — for BISINDO, TODAY, fully offline."
+Framing di writeup: open model ecosystem (Gemma 4) empowers local devs to solve problems
+yang bahkan Google sendiri belum sempat address.
+
+### 3 Pilar Fitur
+
+#### Pilar 1: Two-Way Communication (Hear Me TIDAK bisa)
+```
+Deaf → Hearing: Camera → MediaPipe → 1D CNN → Gloss → Gemma 4 → Kalimat + Empathy + TTS
+Hearing → Deaf: Mic → Gemma 4 Audio → Transkripsi → Gemma 4 Simplify + Vocab Helper
+```
+
+#### Pilar 2: Learning — Dua Arah (upgrade dari Hear Me)
+```
+UNTUK DEAF:
+  LIHAT  → Video manusia asli cara sign (bukan animasi robot)
+  COBA   → User praktek di kamera langsung
+  REVIEW → CNN detect + Gemma 4 Vision feedback ("jarimu kurang tepat, coba lagi!")
+  PAHAM  → Vocab helper jelaskan kata sulit untuk Tuli
+
+UNTUK HEARING:
+  Belajar alfabet isyarat (SIBI) → ejaan jari nama, singkatan
+  Belajar kata dasar BISINDO → bisa berkomunikasi dasar dengan orang Tuli
+  → Breaking the wall: hearing juga explore & PD berkomunikasi dengan Tuli
+```
+
+#### Pilar 3: Single Model Offline
+```
+Gemma 4 E2B = 1 model, 4 peran (text + audio + vision + reasoning), 0 internet
+→ Cocok untuk Indonesia rural yang internet tidak stabil
+```
+
+### Vs Kompetitor
+
+| | Google Interpreter | Hear Me | KawanIsyarat |
+|---|---|---|---|
+| Bahasa isyarat | ASL | BISINDO (pasif) | **BISINDO (aktif + pasif)** |
+| Live recognition | ❌ | ❌ | **✅ CNN real-time** |
+| Two-way comm | ❌ | ❌ | **✅ Deaf↔Hearing** |
+| AI learning coach | ❌ | ❌ | **✅ Gemma 4 Vision** |
+| Vocab helper | ❌ | ❌ | **✅ Kata sulit dijelaskan** |
+| Empathy suggestion | ❌ | ❌ | **✅ Saran untuk hearing** |
+| Offline | ❌ | ❌ | **✅ Fully offline** |
+| Library kosakata | ❌ | ✅ Animasi | **Video manusia asli** |
+
+### Killer Features (yang TIDAK ADA di app lain)
+1. **Gemma 4 Vision Sign Coach** — camera capture → Gemma review → "Hampir benar! Telunjuk harus lebih ke telinga."
+2. **Contextual Empathy** — bukan cuma translate, tapi saran cara berkomunikasi dengan Tuli
+3. **Deaf Vocabulary Helper** — detect kata sulit (asuransi, polis, formulir) → jelaskan sederhana
+4. **Emergency Quick-Sign** — 1 tombol → "Saya tuli. Saya butuh bantuan." → TTS
+5. **Fully offline BISINDO** — satu-satunya AI app untuk BISINDO yang kerja tanpa internet
+6. **Breaking the Wall** — bukan cuma alat bantu Tuli, tapi juga mendorong hearing untuk belajar BISINDO → komunikasi jadi seamless dari kedua sisi
+
+### Visi Jangka Panjang: Platform & Plugin Ecosystem
+
+#### Misi Utama
+KawanIsyarat bukan sekadar app — ini adalah **jembatan** yang memecah tembok komunikasi.
+Tujuannya: Tuli lebih PD dan eksplor dunia, hearing lebih PD dan mau belajar komunikasi dengan Tuli.
+Ketika kedua sisi bergerak mendekat → komunikasi jadi **seamless**.
+
+#### Plugin / SDK Vision (Setelah Hackathon)
+- **Video Call Plugin** — embed KawanIsyarat sebagai overlay di WhatsApp VC, Zoom, Google Meet
+  - Real-time sign → text subtitle di video call
+  - Audio → simplified text untuk participant Tuli
+  - Accessibility layer yang bisa ditambahkan ke platform manapun
+- **Android Accessibility Service** — system-wide overlay, aktif di app apapun
+- **Web SDK** — JavaScript SDK untuk embed di website (customer service, e-learning, telehealth)
+- **API / On-Device SDK** — developer lain bisa integrasi BISINDO recognition ke app mereka
+
+#### Kenapa Ini Penting untuk Writeup
+- Menunjukkan app ini bukan one-time hackathon project tapi punya **scalable vision**
+- Plugin approach = **multiplier effect** — 1 teknologi, jutaan touchpoint
+- Framing: "Today it's an app. Tomorrow it's an accessibility layer for the entire Indonesian digital ecosystem."
+
+### Video Script (3 menit)
+```
+0:00-0:20  HOOK
+  "Di Indonesia, 2 juta orang Tuli pakai BISINDO. Tidak ada satu pun
+   AI app yang mendukung mereka. Adik saya salah satunya."
+
+0:20-0:40  PERSONAL STORY
+  Tunjukkan adik Tuli dalam keseharian. Kesulitan di RS/bank/sekolah.
+  "Setiap kali dia perlu ke dokter, saya harus ikut sebagai juru bahasa."
+
+0:40-1:30  DEMO: TWO-WAY COMMUNICATION
+  Adik sign BISINDO → app translate → orang dengar paham + saran empatik
+  Orang dengar bicara → app transkripsi → simplify untuk adik baca + vocab helper
+
+1:30-2:00  DEMO: LEARNING MODE
+  Adik belajar kata baru → lihat video manusia → coba di kamera → AI feedback
+  "Hampir benar! Coba lagi." → berhasil → senyum
+
+2:00-2:30  TECHNICAL WOW
+  "Semua ini berjalan dari SATU model Gemma 4, fully offline, di HP biasa.
+   Audio, text, vision — satu model, zero internet."
+  Tunjukkan: matikan WiFi → app tetap jalan
+
+2:30-2:50  VISION: BREAKING THE WALL
+  "KawanIsyarat bukan cuma untuk orang Tuli. Orang dengar juga bisa belajar
+   isyarat di sini. Ketika kedua sisi bergerak mendekat — tembok itu runtuh."
+  Tunjukkan: hearing user belajar alfabet isyarat di app
+  "Bayangkan ini sebagai plugin di WhatsApp video call, Zoom, Google Meet —
+   real-time sign language subtitle, di mana saja."
+
+2:50-3:00  CLOSING
+  "Google sedang membangun SignGemma untuk ASL. Tapi 2 juta orang Tuli Indonesia
+   tidak bisa menunggu. KawanIsyarat hadir sekarang — dibangun dengan Gemma 4,
+   untuk adik saya, dan untuk semua Tuli di Indonesia."
+  Shot terakhir: adik tersenyum menggunakan app
+```
+
+### Writeup Key Sentences (English)
+- "KawanIsyarat is the first AI-powered BISINDO communication app — built for my deaf sibling and 2 million deaf Indonesians."
+- "One Gemma 4 model powers ALL AI tasks: audio transcription, text generation, vision feedback, and contextual empathy — fully offline on a $300 phone."
+- "While Google develops SignGemma for ASL, KawanIsyarat brings that vision to BISINDO TODAY — proving that the Gemma open model ecosystem empowers local developers to solve accessibility challenges in their own communities."
+- "KawanIsyarat doesn't just help the deaf communicate — it empowers hearing people to learn sign language too, breaking the wall from BOTH sides. Today it's an app; tomorrow it's an accessibility layer for video calls, websites, and the entire Indonesian digital ecosystem."
+
+### Gesture Recognition — Dual Model Architecture
+
+#### Model 1: SIBI Alfabet (Statis)
+- Dataset: Kaggle SIBI 5280 gambar (A-Z, ~220/huruf)
+- Feature: 42 floats (21 hand landmarks × xy, Boháček bbox-normalized)
+- Model: Dense classifier (bukan LSTM — huruf statis)
+- Skip: J, Z (dinamis)
+- Script: `ml/prepare_sibi_alphabet.py`
+
+#### Model 2: BISINDO Kata Umum (Dinamis)
+- Dataset: Rekam sendiri via webcam
+- Vocabulary fase 1 (16 kelas):
+  TULI, SAYA, KAMU, NAMA, TOLONG, APA, TERIMA_KASIH,
+  BAIK, SAKIT, LAPAR, HAUS, MINTA, PAGI, MALAM, SEKOLAH, NOISE
+- Feature: 94 floats/frame (nose-centered, shoulder-normalized)
+  + temporal derivatives saat training (94 × 3 = 282 floats/frame)
+- Sequence: 30 frame @ 15fps = 2 detik
+- Model: 1D CNN (Causal Depthwise Conv, kernel=11) — mengikuti arsitektur 1st place Kaggle ASL Signs
+- Tanpa Transformer (data terlalu kecil, prone overfit)
+- Script: `ml/data_collector.py`
+
+#### Normalisasi (kedua model)
+- Nose-centered: semua koordinat dikurangi posisi hidung
+- Shoulder-width scaling: dibagi lebar bahu → scale-invariant
+- Temporal derivatives (Model 2 only): velocity + acceleration
+- Mengikuti approach 1st place Kaggle ASL Signs (Hoyeol Sohn)
+
+### ML Pipeline Files
+```
+ml/
+  data_collector.py          — Rekam data BISINDO kata dari webcam (94 floats)
+  prepare_sibi_alphabet.py   — Ekstrak SIBI alfabet → landmarks (42 floats)
+  prepare_asl_dataset.py     — Opsional: import Google ASL Signs dataset
+  requirements.txt           — mediapipe, opencv, numpy, pandas, pyarrow
+  dataset/                   — Output BISINDO kata (per label folder)
+  dataset_alphabet/          — Output SIBI alfabet (per huruf folder)
+```

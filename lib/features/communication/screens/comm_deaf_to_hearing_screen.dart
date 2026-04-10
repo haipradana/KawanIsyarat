@@ -227,10 +227,13 @@ class _CommDeafToHearingScreenState
   }
 
   Widget _buildCameraView(DeafToHearingState state) {
+    // Aspect ratio 4:3 — mendekati format training data (video landscape upper-body).
+    // FittedBox.cover akan crop bagian atas/bawah frame portrait sensor,
+    // menyisakan area tengah (kepala + badan + tangan) yang relevan untuk BISINDO.
     return ClipRRect(
       borderRadius: BorderRadius.circular(AppRadius.lg),
       child: AspectRatio(
-        aspectRatio: 3 / 4,
+        aspectRatio: 4 / 3,
         child: Container(
           decoration: BoxDecoration(
             color: Color(0xFF1A1A2E),
@@ -300,15 +303,36 @@ class _CommDeafToHearingScreenState
                   ),
                 ),
               ),
-              // Skeleton overlay — real hand landmarks
+              // Skeleton overlay — real hand + body landmarks.
+              // Hitung crop fraction dari FittedBox.cover agar skeleton tepat
+              // overlay di atas visual kamera (terutama setelah ganti ke 4:3).
               if (state.isCapturing && state.skeletonPoints.isNotEmpty)
                 LayoutBuilder(
                   builder: (context, constraints) {
+                    final containerW = constraints.maxWidth;
+                    final containerH = constraints.maxHeight;
+                    // Sensor portrait: width/height di-swap karena sensorOrientation=90
+                    final sensorW = (_cameraController?.value.previewSize?.height ?? 480).toDouble();
+                    final sensorH = (_cameraController?.value.previewSize?.width ?? 640).toDouble();
+                    final containerAR = containerW / containerH;
+                    final sensorAR = sensorW / sensorH;
+                    double cropFracY = 0.0, cropFracX = 0.0;
+                    if (containerAR > sensorAR) {
+                      // Container lebih lebar → FittedBox.cover crop atas+bawah (Y)
+                      final scaledH = sensorH * (containerW / sensorW);
+                      cropFracY = ((scaledH - containerH) / 2) / scaledH;
+                    } else if (sensorAR > containerAR) {
+                      // Sensor lebih lebar → FittedBox.cover crop kiri+kanan (X)
+                      final scaledW = sensorW * (containerH / sensorH);
+                      cropFracX = ((scaledW - containerW) / 2) / scaledW;
+                    }
                     return CustomPaint(
-                      size: Size(constraints.maxWidth, constraints.maxHeight),
+                      size: Size(containerW, containerH),
                       painter: SkeletonOverlayPainter(
                         landmarks: state.skeletonPoints,
                         isActive: state.isCapturing,
+                        cropFracY: cropFracY.clamp(0.0, 0.45),
+                        cropFracX: cropFracX.clamp(0.0, 0.45),
                       ),
                     );
                   },

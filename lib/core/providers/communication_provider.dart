@@ -148,17 +148,31 @@ class DeafToHearingNotifier extends StateNotifier<DeafToHearingState> {
   /// Pose dari ML Kit disimpan dalam sensor/landscape space (karena sensorOrientation=90).
   /// Untuk tampil di portrait canvas: swap x↔y (landscape → portrait).
   /// Painter akan mirror x untuk front camera selfie view.
+  ///
+  /// Landmark di luar frame (misal kaki/pinggul saat selfie upper-body) menggunakan
+  /// sentinel Offset(-2, -2) agar painter skip tanpa distorsi koneksi ke pinggir layar.
   List<Offset> _getPoseSkeletonPoints(List<double> keypoints, int sensorOrientation) {
+    const sentinel = Offset(-2, -2); // invisible — diluar frame visible
+    const margin = 0.08; // toleransi 8% di luar batas (landmark sedikit terpotong masih oke)
     final points = <Offset>[];
     final needSwap = sensorOrientation == 90 || sensorOrientation == 270;
     for (int i = 0; i < 33 && i * 4 + 1 < keypoints.length; i++) {
       final lx = keypoints[i * 4];     // landscape x (normalized)
       final ly = keypoints[i * 4 + 1]; // landscape y (normalized)
+      double px, py;
       if (needSwap) {
-        // Landscape → portrait: x_portrait = ly, y_portrait = lx
-        points.add(Offset(ly, lx));
+        // 90° CW rotation: portrait_x = landscape_y, portrait_y = 1 - landscape_x
+        px = ly;
+        py = 1.0 - lx;
       } else {
-        points.add(Offset(lx, ly));
+        px = lx;
+        py = ly;
+      }
+      // Landmark di luar frame visible → sentinel (jangan gambar ke pinggir layar)
+      if (px < -margin || px > 1.0 + margin || py < -margin || py > 1.0 + margin) {
+        points.add(sentinel);
+      } else {
+        points.add(Offset(px, py));
       }
     }
     return points;
@@ -201,8 +215,14 @@ class DeafToHearingNotifier extends StateNotifier<DeafToHearingState> {
     _isRefining = true;
     state = state.copyWith(isProcessing: true, clearAiSuggestion: true);
     try {
+      final cleanedGloss = _cleanGlossForInference(gloss);
+      debugPrint(
+        '[DeafToHearing] Gloss cleaned for Gemma: ${gloss.join(" | ")} '
+        '=> ${cleanedGloss.join(" ")}',
+      );
+
       // Step 1: Gloss → kalimat (same _infer as simplifyForDeaf — cepat ~4-9s)
-      final sentence = await _gemmaService.refineGloss(gloss);
+      final sentence = await _gemmaService.refineGloss(cleanedGloss);
       if (mounted) {
         state = state.copyWith(
           refinedSentence: sentence,
@@ -220,6 +240,23 @@ class DeafToHearingNotifier extends StateNotifier<DeafToHearingState> {
     } finally {
       _isRefining = false;
     }
+  }
+
+  List<String> _cleanGlossForInference(List<String> gloss) {
+    final cleaned = <String>[];
+
+    for (final rawToken in gloss) {
+      final token = rawToken.trim();
+      if (token.isEmpty || token == '|') continue;
+
+      final normalized = token.toUpperCase();
+      final last = cleaned.isNotEmpty ? cleaned.last.toUpperCase() : null;
+      if (normalized == last) continue;
+
+      cleaned.add(token);
+    }
+
+    return cleaned;
   }
 
   Future<void> speakSentence() async {

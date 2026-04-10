@@ -7,8 +7,10 @@ import 'dart:convert';
 import 'mediapipe_service.dart';
 
 /// Two-stage gesture recognition service:
-/// Stage 1 — MediaPipe: extracts 258 keypoints per camera frame
-/// Stage 2 — LSTM: receives 30-frame buffer → outputs word prediction
+/// Stage 1 — MediaPipe: extracts 258 raw keypoints, then normalizes to 108
+///            Siformer features per frame via MediaPipeService.normalizeSiformer()
+/// Stage 2 — LSTM (bisindo_gesture_siformer.tflite): receives 30-frame buffer
+///            of 108-float features → outputs word prediction
 ///
 /// Also maintains backward compatibility (glossStream, startGestureCapture)
 /// for existing providers.
@@ -27,11 +29,17 @@ class GestureService {
   final List<String> _currentGloss = [];
   bool _isCapturing = false;
 
-  // Sliding window buffer — 30 frames × 258 keypoints
+  // Sliding window buffer — 30 frames × 108 Siformer features
   final List<List<double>> _frameBuffer = [];
   static const int _sequenceLength = 30;
-  static const int _featureDim = 258;
+  static const int _featureDim = 108;
   static const double _confidenceThreshold = 0.65;
+
+  // Buffer auto-reset: jika tangan hilang N frame berturut-turut → clear buffer.
+  // Ini memastikan gesture berikutnya dimulai dari buffer bersih (tidak terkontaminasi zeros).
+  // Training pakai video 1-2s bersih → inference juga harus pakai window bersih.
+  int _consecutiveEmptyFrames = 0;
+  static const int _emptyFramesBeforeReset = 10; // ~0.7-1s di async ~10-15fps
 
   // Continuous prediction state
   void Function(GestureResult)? _onWordCommitted;
@@ -54,7 +62,7 @@ class GestureService {
     try {
       // Load LSTM model
       _lstmInterpreter = await Interpreter.fromAsset(
-        'assets/models/bisindo_gesture.tflite',
+        'assets/models/bisindo_gesture_siformer.tflite',
         options: InterpreterOptions()..threads = 4,
       );
       debugPrint('[GestureService] LSTM model loaded OK');
@@ -77,15 +85,33 @@ class GestureService {
     }
   }
 
-  /// Add one frame of keypoints to the sliding buffer.
+  /// Add one frame of normalized Siformer keypoints to the sliding buffer.
   /// Call this from camera stream while capturing.
   ///
-  /// keypoints: flat array of 258 floats
-  ///   [0..131]   = pose (33 × 4: x,y,z,vis)
-  ///   [132..194] = left hand (21 × 3: x,y,z)
-  ///   [195..257] = right hand (21 × 3: x,y,z)
+  /// keypoints: flat array of 108 Siformer-normalized floats
+  ///   [0..23]   = body (12 × 2: nx, ny)
+  ///   [24..65]  = left hand (21 × 2: nx, ny)
+  ///   [66..107] = right hand (21 × 2: nx, ny)
   void addFrame(List<double> keypoints) {
     if (keypoints.length != _featureDim) return;
+
+    // Deteksi apakah frame ini punya data tangan (index 24-107).
+    // Jika tidak → hitung consecutive empty frames.
+    // Setelah N frame kosong berturut-turut → clear buffer untuk gesture berikutnya.
+    bool hasHands = false;
+    for (int i = 24; i < _featureDim; i++) {
+      if (keypoints[i].abs() > 1e-6) { hasHands = true; break; }
+    }
+
+    if (!hasHands) {
+      _consecutiveEmptyFrames++;
+      if (_consecutiveEmptyFrames >= _emptyFramesBeforeReset && _frameBuffer.isNotEmpty) {
+        _frameBuffer.clear();
+        debugPrint('[GestureService] buffer reset — tangan hilang $_consecutiveEmptyFrames frame');
+      }
+    } else {
+      _consecutiveEmptyFrames = 0;
+    }
 
     _frameBuffer.add(List<double>.from(keypoints));
 
@@ -102,17 +128,42 @@ class GestureService {
   }
 
   /// Add a frame from camera image with async MediaPipe extraction.
-  /// Returns the extracted keypoints for overlay rendering.
+  ///
+  /// Extracts raw 258 keypoints, normalizes them to 108 Siformer features
+  /// for the LSTM buffer, and returns the raw 258 keypoints for overlay use.
   Future<List<double>> addFrameFromCameraAsync(dynamic cameraImage, int sensorOrientation) async {
-    final keypoints = await _mediaPipe.extractKeypointsAsync(cameraImage, sensorOrientation);
-    addFrame(keypoints);
-    return keypoints;
+    final rawKeypoints = await _mediaPipe.extractKeypointsAsync(cameraImage, sensorOrientation);
+    final normalizedKeypoints = _mediaPipe.normalizeSiformer(
+      rawKeypoints,
+      sensorOrientation: sensorOrientation,
+    );
+    addFrame(normalizedKeypoints);
+    return rawKeypoints;
   }
 
   /// Predict gesture from current buffer using LSTM.
-  /// Returns null if buffer not full or confidence too low.
+  /// Returns null if buffer not full, no hands detected, or confidence too low.
   GestureResult? predict() {
     if (_lstmInterpreter == null) return null;
+
+    // Guard: minimal frame dengan tangan terdeteksi.
+    // Siformer hand features: index 24-107 (left hand [24..65] + right hand [66..107]).
+    // Jika semua = 0 → tangan tidak terdeteksi di frame itu.
+    // Tanpa guard ini, 30 frame zeros → model prediksi kelas "default" dengan confidence tinggi.
+    // Minimal 12/30 frame (40%) harus punya tangan — pastikan gesture cukup konsisten.
+    // Buffer auto-reset di addFrame() sudah jamin buffer bersih saat gesture baru mulai,
+    // tapi guard ini tetap perlu untuk transisi awal (buffer belum penuh).
+    const minHandFrames = 12;
+    final framesWithHands = _frameBuffer.where((frame) {
+      for (int i = 24; i < _featureDim; i++) {
+        if (frame[i].abs() > 1e-6) return true;
+      }
+      return false;
+    }).length;
+    if (framesWithHands < minHandFrames) {
+      debugPrint('[GestureService] skip: $framesWithHands/$minHandFrames frames with hands');
+      return null;
+    }
 
     // Pad with zeros if buffer not full
     final paddedBuffer = List<List<double>>.from(_frameBuffer);
@@ -120,7 +171,7 @@ class GestureService {
       paddedBuffer.insert(0, List.filled(_featureDim, 0.0));
     }
 
-    // Build input tensor: shape (1, 30, 258)
+    // Build input tensor: shape (1, 30, 108)
     final input = [paddedBuffer];
 
     // Output tensor: shape (1, numClasses)
@@ -150,7 +201,10 @@ class GestureService {
   }
 
   /// Clear keypoint buffer — call when starting new gesture session.
-  void clearBuffer() => _frameBuffer.clear();
+  void clearBuffer() {
+    _frameBuffer.clear();
+    _consecutiveEmptyFrames = 0;
+  }
 
   // ======================================
   // Backward-compatible API for existing providers

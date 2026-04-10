@@ -13,6 +13,13 @@ class SkeletonOverlayPainter extends CustomPainter {
   final List<Offset> landmarks;
   final bool isActive;
 
+  /// Fraksi sensor yang di-crop oleh FittedBox.cover.
+  /// cropFracY: berapa fraksi sensor Y yang dipotong dari atas DAN bawah.
+  /// cropFracX: berapa fraksi sensor X yang dipotong dari kiri DAN kanan.
+  /// Dicompute dari LayoutBuilder + previewSize di screen.
+  final double cropFracY;
+  final double cropFracX;
+
   /// Pose bone connections (MediaPipe Pose 33 landmarks).
   static const _poseConnections = [
     // Torso/spine
@@ -44,6 +51,8 @@ class SkeletonOverlayPainter extends CustomPainter {
   const SkeletonOverlayPainter({
     required this.landmarks,
     this.isActive = true,
+    this.cropFracY = 0.0,
+    this.cropFracX = 0.0,
   });
 
   @override
@@ -69,10 +78,21 @@ class SkeletonOverlayPainter extends CustomPainter {
 
     // Koordinat sudah di-swap landscape→portrait di provider.
     // Mirror X untuk front camera selfie: (1.0 - x).
-    final scaled = landmarks.map((p) => Offset(
-      (1.0 - p.dx) * size.width,
-      p.dy * size.height,
-    )).toList();
+    // Sentinel Offset(-2,-2) dipertahankan apa adanya (dx<0) agar painter bisa skip.
+    //
+    // Crop correction: FittedBox.cover memotong sensor frame agar mengisi container.
+    // Contoh AspectRatio 4/3 dengan sensor portrait 3/4:
+    //   sensor y=[0,1] → container hanya tampilkan y=[cropFracY, 1-cropFracY]
+    //   → perlu remap: container_y = (sensor_y - cropFracY) / (1 - 2*cropFracY)
+    final rangeY = cropFracY > 0 ? (1.0 - 2 * cropFracY) : 1.0;
+    final rangeX = cropFracX > 0 ? (1.0 - 2 * cropFracX) : 1.0;
+    final scaled = landmarks.map((p) {
+      if (p.dx < 0) return p; // sentinel — landmark di luar frame, jangan scale
+      final mirroredX = 1.0 - p.dx; // mirror untuk front camera selfie
+      final corrX = cropFracX > 0 ? (mirroredX - cropFracX) / rangeX : mirroredX;
+      final corrY = cropFracY > 0 ? (p.dy - cropFracY) / rangeY : p.dy;
+      return Offset(corrX * size.width, corrY * size.height);
+    }).toList();
 
     // Draw pose (first 33 points)
     if (scaled.length >= 33) {
@@ -99,13 +119,13 @@ class SkeletonOverlayPainter extends CustomPainter {
   void _drawPose(Canvas canvas, List<Offset> points, Paint linePaint, Paint dotPaint, Paint glowPaint, Paint highlightPaint) {
     if (points.length < 33) return;
 
-    // Draw pose connections
+    // Draw pose connections — skip jika salah satu ujung di luar frame (sentinel dx<0)
     for (final conn in _poseConnections) {
       if (conn[0] < points.length && conn[1] < points.length) {
         final p1 = points[conn[0]];
         final p2 = points[conn[1]];
-        // Only draw if both points are visible (not zero)
-        if ((p1.dx != 0 || p1.dy != 0) && (p2.dx != 0 || p2.dy != 0)) {
+        // Sentinel Offset(-2,-2) → dx<0 → skip. Hanya gambar jika kedua titik visible.
+        if (p1.dx >= 0 && p2.dx >= 0) {
           canvas.drawLine(p1, p2, linePaint);
         }
       }
@@ -121,9 +141,9 @@ class SkeletonOverlayPainter extends CustomPainter {
 
     for (int i = 0; i < points.length; i++) {
       final point = points[i];
-      // Skip semua face landmarks (0-10: nose, eyes, ears, mouth) — hanya tampil badan
-      // LSTM tetap baca face landmarks dari 258 floats, ini hanya visual overlay
-      if (i <= 10 || (point.dx == 0 && point.dy == 0)) continue;
+      // Skip face landmarks (0-10) dan sentinel (dx<0 = di luar frame)
+      // LSTM tetap baca face landmarks dari 258 floats — ini hanya visual overlay
+      if (i <= 10 || point.dx < 0) continue;
 
       canvas.drawCircle(point, 4, poseGlowPaint);
       canvas.drawCircle(point, 2, poseDotPaint);
@@ -155,5 +175,8 @@ class SkeletonOverlayPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(SkeletonOverlayPainter old) =>
-      old.landmarks != landmarks || old.isActive != isActive;
+      old.landmarks != landmarks ||
+      old.isActive != isActive ||
+      old.cropFracY != cropFracY ||
+      old.cropFracX != cropFracX;
 }

@@ -104,7 +104,7 @@ class MediaPipeService {
     try {
       _handLandmarker = HandLandmarkerPlugin.create(
         numHands: 2,
-        minHandDetectionConfidence: 0.5,
+        minHandDetectionConfidence: 0.3,
         delegate: HandLandmarkerDelegate.gpu,
       );
     } catch (e) {
@@ -112,7 +112,7 @@ class MediaPipeService {
       try {
         _handLandmarker = HandLandmarkerPlugin.create(
           numHands: 2,
-          minHandDetectionConfidence: 0.5,
+          minHandDetectionConfidence: 0.3,
           delegate: HandLandmarkerDelegate.cpu,
         );
       } catch (e2) {
@@ -393,6 +393,149 @@ class MediaPipeService {
     }
   }
 
+  /// Normalize raw 258 keypoints to 108 Siformer features.
+  ///
+  /// Output layout: [body 24] + [left_hand 42] + [right_hand 42] = 108 floats
+  ///
+  /// [sensorOrientation] should be 90 for portrait Pixel 6a (default).
+  List<double> normalizeSiformer(
+    List<double> rawKeypoints, {
+    int sensorOrientation = 90,
+  }) {
+    final features = List<double>.filled(108, 0.0);
+
+    // ── Body normalization (12 keypoints × 2 = 24 floats) ──────────────────
+    //
+    // Pose is stored in landscape sensor space (sensorOrientation=90).
+    // 90° CW rotation transform (landscape sensor → portrait display):
+    //   portrait_x = landscape_y  = rawKeypoints[i*4 + 1]
+    //   portrait_y = 1 - landscape_x = 1 - rawKeypoints[i*4]
+    //
+    // The "1 -" inversion is critical: without it, y-axis is flipped
+    // (top of portrait maps to y≈1 instead of y≈0).
+
+    double portraitX(int i) => rawKeypoints[i * 4 + 1];        // landscape_y → portrait_x
+    double portraitY(int i) => 1.0 - rawKeypoints[i * 4];      // 1 - landscape_x → portrait_y
+
+    // Neck = midpoint of left(11) + right(12) shoulders
+    final neckX = (portraitX(11) + portraitX(12)) / 2.0;
+    final neckY = (portraitY(11) + portraitY(12)) / 2.0;
+
+    // Head metric = shoulder-to-shoulder distance
+    double headMetric = sqrt(
+      pow(portraitX(11) - portraitX(12), 2) + pow(portraitY(11) - portraitY(12), 2),
+    );
+
+    // Fallback: use nose(0) → neck distance if shoulders are too close
+    if (headMetric < 1e-5) {
+      headMetric = sqrt(
+        pow(portraitX(0) - neckX, 2) + pow(portraitY(0) - neckY, 2),
+      );
+      if (headMetric < 1e-5) headMetric = 1e-5; // absolute fallback
+    }
+
+    // Bounding box for body normalization
+    final startX = neckX - 3.0 * headMetric;
+    final startY = portraitY(2) + headMetric; // left_eye.y + headMetric  (bottom)
+    final endX = neckX + 3.0 * headMetric;
+    final endY = startY - 6.0 * headMetric;   // top
+
+    final bboxW = endX - startX; // > 0
+    final bboxH = startY - endY; // startY > endY → positive
+
+    // 12 body keypoint indices (matches Python training order):
+    // nose(0), neck, right_eye(5), left_eye(2), right_ear(8), left_ear(7),
+    // right_shoulder(12), left_shoulder(11), right_elbow(14), left_elbow(13),
+    // right_wrist(16), left_wrist(15)
+    const List<int> bodyIndices = [0, -1, 5, 2, 8, 7, 12, 11, 14, 13, 16, 15];
+
+    for (int i = 0; i < bodyIndices.length; i++) {
+      final idx = bodyIndices[i];
+      double x, y;
+      if (idx == -1) {
+        // neck — synthetic keypoint
+        x = neckX;
+        y = neckY;
+      } else {
+        x = portraitX(idx);
+        y = portraitY(idx);
+      }
+
+      final nx = bboxW.abs() > 1e-9 ? ((x - startX) / bboxW).clamp(0.0, 1.0) : 0.0;
+      final ny = bboxH.abs() > 1e-9 ? ((y - endY) / bboxH).clamp(0.0, 1.0) : 0.0;
+      features[i * 2] = nx;
+      features[i * 2 + 1] = ny;
+    }
+
+    // ── Hand normalization (21 keypoints × 2 = 42 floats each) ────────────
+    _normalizeHandInto(rawKeypoints, 132, features, 24);  // left hand
+    _normalizeHandInto(rawKeypoints, 195, features, 66);  // right hand
+
+    return features;
+  }
+
+  /// Normalize one hand's landmarks into [out] starting at [dstStart].
+  ///
+  /// [srcStart]: 132 for left hand, 195 for right hand.
+  /// Hand coordinates are already in display space (hand_landmarker handles
+  /// rotation), so no swap is needed here.
+  void _normalizeHandInto(
+    List<double> keypoints,
+    int srcStart,
+    List<double> out,
+    int dstStart,
+  ) {
+    // Collect valid (non-zero) landmarks
+    double minX = double.infinity, maxX = double.negativeInfinity;
+    double minY = double.infinity, maxY = double.negativeInfinity;
+    int validCount = 0;
+
+    for (int i = 0; i < 21; i++) {
+      final base = srcStart + i * 3;
+      final x = keypoints[base];
+      final y = keypoints[base + 1];
+      if (x != 0.0 || y != 0.0) {
+        if (x < minX) minX = x;
+        if (x > maxX) maxX = x;
+        if (y < minY) minY = y;
+        if (y > maxY) maxY = y;
+        validCount++;
+      }
+    }
+
+    if (validCount < 5) return; // leave zeros — hand not reliably detected
+
+    final width = maxX - minX;
+    final height = maxY - minY;
+
+    double deltaX, deltaY;
+    if (width > height) {
+      deltaX = 0.1 * width;
+      deltaY = deltaX + (width - height) / 2.0;
+    } else {
+      deltaY = 0.1 * height;
+      deltaX = deltaY + (height - width) / 2.0;
+    }
+
+    final bx1 = minX - deltaX;
+    final bx2 = maxX + deltaX;
+    final by1 = minY - deltaY;
+    final by2 = maxY + deltaY;
+
+    final bw = bx2 - bx1;
+    final bh = by2 - by1;
+
+    for (int i = 0; i < 21; i++) {
+      final base = srcStart + i * 3;
+      final x = keypoints[base];
+      final y = keypoints[base + 1];
+      final nx = bw > 1e-9 ? ((x - bx1) / bw).clamp(0.0, 1.0) : 0.0;
+      final ny = bh > 1e-9 ? ((y - by1) / bh).clamp(0.0, 1.0) : 0.0;
+      out[dstStart + i * 2] = nx;
+      out[dstStart + i * 2 + 1] = ny;
+    }
+  }
+
   /// Get hand landmark positions for skeleton overlay (normalized 0-1).
   /// Hand landmarks dari hand_landmarker disimpan di sensor space.
   /// Untuk portrait display (sensorOrientation=90): swap x↔y sama seperti pose.
@@ -412,9 +555,9 @@ class MediaPipeService {
         final kx = keypoints[base];
         final ky = keypoints[base + 1];
         if (kx != 0.0 || ky != 0.0) {
-          // Swap x↔y untuk convert landscape sensor → portrait display
-          final ox = needSwap ? ky * canvasSize.width : kx * canvasSize.width;
-          final oy = needSwap ? kx * canvasSize.height : ky * canvasSize.height;
+          // 90° CW rotation: portrait_x = ky, portrait_y = 1 - kx
+          final ox = needSwap ? ky * canvasSize.width  : kx * canvasSize.width;
+          final oy = needSwap ? (1.0 - kx) * canvasSize.height : ky * canvasSize.height;
           positions.add(Offset(ox, oy));
         }
       }

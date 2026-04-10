@@ -1,6 +1,5 @@
 import 'dart:convert';
 import 'dart:io';
-import 'dart:typed_data';
 import 'package:flutter/foundation.dart';
 import '../ffi/cactus_wrapper.dart';
 import 'model_manager.dart';
@@ -48,8 +47,21 @@ class GemmaService {
   // ---- System prompts ----
 
   static const _systemPrompt = '''
-Kamu asisten terjemahan BISINDO. Ubah gloss isyarat (dipisah |) ke kalimat Bahasa Indonesia natural. Jawab HANYA kalimatnya.
-Contoh: SAYA | MAKAN | SIANG -> Saya mau makan siang.
+Kamu asisten terjemahan BISINDO.
+Input dari user adalah urutan kata gloss BISINDO yang sudah dibersihkan, bukan kalimat natural.
+Tugasmu adalah merangkai gloss itu menjadi 1 kalimat Bahasa Indonesia yang natural, singkat, dan jelas.
+Tambahkan kata sambung, imbuhan, atau preposisi seperlunya agar kalimat enak dibaca.
+Pertahankan makna utama gloss. Jangan menambah detail baru yang tidak ada di gloss.
+Jika urutannya terasa seperti frasa, ubah menjadi ucapan yang paling wajar dalam konteks percakapan sehari-hari.
+Jangan jelaskan prosesnya.
+Jangan menulis daftar kata.
+Jawab HANYA satu kalimat hasil akhir.
+
+Contoh:
+SAYA MAKAN SIANG -> Saya mau makan siang.
+SAYA PUSING OBAT -> Saya pusing, butuh obat.
+MOTOR BELAJAR RUMAH -> Saya belajar motor di rumah.
+TEMAN RUMAH JAUH -> Rumah teman saya jauh.
 ''';
 
   static const _empathySuggestionPrompt = '''
@@ -200,15 +212,44 @@ Jawab HANYA dengan teks transkripsi, tanpa penjelasan atau komentar.
   Future<String> refineGloss(List<String> glossList) async {
     if (glossList.isEmpty) return '';
 
-    if (glossList.length == 1) {
-      final direct = _directMap[glossList.first.toUpperCase()];
-      if (direct != null) return direct;
+    final preparedGloss = _prepareGlossTokens(glossList);
+    if (preparedGloss.isEmpty) return '';
+
+    final directKey = preparedGloss.join(' ').toUpperCase();
+    final direct = _directMap[directKey];
+    if (direct != null) {
+      return direct;
     }
 
-    if (!_isLoaded || _model == null) return glossList.join(' ');
+    if (preparedGloss.length == 1) {
+      final singleWordDirect = _directMap[preparedGloss.first.toUpperCase()];
+      if (singleWordDirect != null) return singleWordDirect;
+    }
 
-    final result = await _infer(_systemPrompt, glossList.join(' | '));
-    return result?.isNotEmpty == true ? result! : glossList.join(' ');
+    if (!_isLoaded || _model == null) return preparedGloss.join(' ');
+
+    final promptInput = 'Gloss BISINDO: ${preparedGloss.join(' ')}';
+    debugPrint('[GemmaService] refineGloss input: $promptInput');
+
+    final result = await _infer(_systemPrompt, promptInput);
+    return result?.isNotEmpty == true ? result! : preparedGloss.join(' ');
+  }
+
+  List<String> _prepareGlossTokens(List<String> glossList) {
+    final prepared = <String>[];
+
+    for (final rawToken in glossList) {
+      final token = rawToken.trim();
+      if (token.isEmpty || token == '|') continue;
+
+      final normalized = token.toUpperCase();
+      final last = prepared.isNotEmpty ? prepared.last.toUpperCase() : null;
+      if (normalized == last) continue;
+
+      prepared.add(token);
+    }
+
+    return prepared;
   }
 
   /// Gloss -> kalimat + saran empatik untuk lawan bicara (Contextual Empathy).
@@ -252,6 +293,9 @@ Jawab HANYA dengan teks transkripsi, tanpa penjelasan atau komentar.
     'HALO': 'Halo!',
     'MAAF': 'Maaf.',
     'TERIMA KASIH': 'Terima kasih.',
+    'SELAMAT PAGI': 'Selamat pagi.',
+    'SELAMAT SIANG': 'Selamat siang.',
+    'SELAMAT MALAM': 'Selamat malam.',
     'TOLONG': 'Tolong.',
     'OKE': 'Oke.',
     'BAGUS': 'Bagus!',
