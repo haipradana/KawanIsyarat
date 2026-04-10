@@ -31,6 +31,12 @@ class SibiAlphabetService {
   factory SibiAlphabetService() => _instance;
   SibiAlphabetService._internal();
 
+  static const List<String> supportedLetters = [
+    'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I',
+    'K', 'L', 'M', 'N', 'O', 'P', 'Q', 'R', 'S',
+    'T', 'U', 'V', 'W', 'X', 'Y',
+  ];
+
   Interpreter? _interpreter;
   HandLandmarkerPlugin? _handLandmarker;
   List<String> _labels = [];
@@ -44,20 +50,18 @@ class SibiAlphabetService {
   Future<void> initialize() async {
     if (_isLoaded) return;
 
-    // Load TFLite model (F32 — tanpa quantization issues)
+    // Gunakan model F32 agar inferensi persis mengikuti output training script.
     _interpreter = await Interpreter.fromAsset(
       'assets/models/sibi_alphabet_model_f32.tflite',
       options: InterpreterOptions()..threads = 2,
     );
 
-    final inputTensor = _interpreter!.getInputTensor(0);
-    final outputTensor = _interpreter!.getOutputTensor(0);
-    debugPrint('[SIBI] Input:  shape=${inputTensor.shape}, type=${inputTensor.type}');
-    debugPrint('[SIBI] Output: shape=${outputTensor.shape}, type=${outputTensor.type}');
-
     // Load labels JSON
     final labelsStr = await rootBundle.loadString('assets/models/sibi_alphabet_labels.json');
     _labels = List<String>.from(jsonDecode(labelsStr));
+    if (!listEquals(_labels, supportedLetters)) {
+      debugPrint('[SIBI] Warning: labels JSON berbeda dari expected training labels: $_labels');
+    }
 
     // Inisialisasi hand landmarker
     try {
@@ -66,7 +70,6 @@ class SibiAlphabetService {
         minHandDetectionConfidence: 0.3,
         delegate: HandLandmarkerDelegate.gpu,
       );
-      debugPrint('[SIBI] HandLandmarker: GPU');
     } catch (e) {
       debugPrint('[SIBI] GPU HandLandmarker gagal, coba CPU: $e');
       try {
@@ -75,14 +78,12 @@ class SibiAlphabetService {
           minHandDetectionConfidence: 0.3,
           delegate: HandLandmarkerDelegate.cpu,
         );
-        debugPrint('[SIBI] HandLandmarker: CPU');
       } catch (e2) {
         debugPrint('[SIBI] HandLandmarker init gagal: $e2');
       }
     }
 
     _isLoaded = true;
-    debugPrint('[SIBI] Ready — ${_labels.length} kelas: $_labels');
   }
 
   /// Deteksi huruf SIBI dari camera frame.
@@ -94,6 +95,7 @@ class SibiAlphabetService {
   SibiDetectionResult? detectFromCameraImage(
     CameraImage frame,
     int sensorOrientation,
+    bool isFrontCamera,
   ) {
     if (!_isLoaded || _interpreter == null || _handLandmarker == null) return null;
 
@@ -106,15 +108,8 @@ class SibiAlphabetService {
       if (landmarks.length < 21) return null;
 
       // 2. Boháček bbox normalization → 42 floats [0, 1]
-      final features = _normalizeHand(landmarks);
+      final features = _normalizeHand(landmarks, sensorOrientation, isFrontCamera);
       if (features == null) return null;
-
-      // DEBUG: print features untuk compare dengan Python
-      debugPrint('[SIBI] Features: '
-          'wrist=(${features[0].toStringAsFixed(3)},${features[1].toStringAsFixed(3)}) '
-          'thumb_tip=(${features[8].toStringAsFixed(3)},${features[9].toStringAsFixed(3)}) '
-          'index_tip=(${features[16].toStringAsFixed(3)},${features[17].toStringAsFixed(3)}) '
-          'pinky_tip=(${features[40].toStringAsFixed(3)},${features[41].toStringAsFixed(3)})');
 
       // 3. Jalankan inference (float32)
       final input = [features]; // [1, 42]
@@ -134,8 +129,6 @@ class SibiAlphabetService {
 
       if (maxScore < _confThreshold) return null;
 
-      debugPrint('[SIBI] → ${_labels[maxIdx]} ${(maxScore * 100).toStringAsFixed(1)}%');
-
       return SibiDetectionResult(
         letter: _labels[maxIdx],
         confidence: maxScore,
@@ -150,13 +143,25 @@ class SibiAlphabetService {
   ///
   /// Semua koordinat digeser ke bounding box tangan,
   /// sehingga hasilnya scale-invariant dan position-invariant.
-  List<double>? _normalizeHand(List landmarks) {
+  List<double>? _normalizeHand(
+    List landmarks,
+    int sensorOrientation,
+    bool isFrontCamera,
+  ) {
     final xs = <double>[];
     final ys = <double>[];
 
     for (int i = 0; i < landmarks.length && i < 21; i++) {
-      xs.add((landmarks[i].x as num).toDouble());
-      ys.add((landmarks[i].y as num).toDouble());
+      final rawX = (landmarks[i].x as num).toDouble();
+      final rawY = (landmarks[i].y as num).toDouble();
+      final oriented = _toPortraitSpace(
+        rawX,
+        rawY,
+        sensorOrientation,
+        isFrontCamera,
+      );
+      xs.add(oriented.$1);
+      ys.add(oriented.$2);
     }
 
     if (xs.length < 21) return null;
@@ -181,6 +186,24 @@ class SibiAlphabetService {
       features[i * 2 + 1] = (ys[i] - minY) / scaleH;
     }
     return features;
+  }
+
+  (double, double) _toPortraitSpace(
+    double x,
+    double y,
+    int sensorOrientation,
+    bool isFrontCamera,
+  ) {
+    switch (sensorOrientation) {
+      case 90:
+        return isFrontCamera ? (1.0 - y, x) : (1.0 - y, x);
+      case 270:
+        return isFrontCamera ? (y, 1.0 - x) : (y, 1.0 - x);
+      case 180:
+        return isFrontCamera ? (1.0 - x, 1.0 - y) : (1.0 - x, 1.0 - y);
+      default:
+        return isFrontCamera ? (x, y) : (x, y);
+    }
   }
 
   void dispose() {

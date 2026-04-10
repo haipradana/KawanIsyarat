@@ -3,6 +3,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:go_router/go_router.dart';
 import '../../../app/constants.dart';
+import '../../../core/services/sibi_alphabet_service.dart';
 import 'alphabet_practice_screen.dart';
 
 class LearnAlfabetScreen extends StatefulWidget {
@@ -14,6 +15,7 @@ class LearnAlfabetScreen extends StatefulWidget {
 
 class _LearnAlfabetScreenState extends State<LearnAlfabetScreen> {
   String? _selectedLetter;
+  final _practiceLetters = SibiAlphabetService.supportedLetters;
 
   @override
   Widget build(BuildContext context) {
@@ -49,6 +51,14 @@ class _LearnAlfabetScreenState extends State<LearnAlfabetScreen> {
                 color: AppColors.textSecondary,
               ),
             ).animate().fadeIn(duration: 400.ms),
+            SizedBox(height: AppSpacing.sm),
+            Text(
+              'Model latihan mendukung 24 huruf statis. Huruf J dan Z belum masuk karena butuh gerakan.',
+              style: GoogleFonts.beVietnamPro(
+                fontSize: 12,
+                color: AppColors.outline,
+              ),
+            ).animate().fadeIn(duration: 400.ms, delay: 80.ms),
             SizedBox(height: AppSpacing.xxl),
             // Alphabet grid
             GridView.builder(
@@ -60,9 +70,9 @@ class _LearnAlfabetScreenState extends State<LearnAlfabetScreen> {
                 crossAxisSpacing: 10,
                 childAspectRatio: 1.0,
               ),
-              itemCount: BisindoData.alfabet.length,
+              itemCount: _practiceLetters.length,
               itemBuilder: (context, index) {
-                final letter = BisindoData.alfabet[index];
+                final letter = _practiceLetters[index];
                 final isSelected = _selectedLetter == letter;
                 return _LetterTile(
                   letter: letter,

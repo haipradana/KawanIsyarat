@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:collection';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:flutter_animate/flutter_animate.dart';
@@ -40,18 +41,23 @@ class _AlphabetPracticeScreenState extends State<AlphabetPracticeScreen>
   _Phase _phase = _Phase.preparing;
   SibiDetectionResult? _liveResult;   // deteksi realtime dari stream
   SibiDetectionResult? _lastResult;   // difreeze saat capture
+  final Queue<SibiDetectionResult> _recentPredictions = Queue<SibiDetectionResult>();
   bool _isCorrect = false;
   int _correctCount = 0;
   int _totalCount = 0;
 
   int _sensorOrientation = 90;
+  bool _isFrontCamera = true;
   bool _isProcessingFrame = false;    // throttle stream
+  int _missedFrames = 0;
 
   late AnimationController _countdownController;
   Timer? _phaseTimer;
 
   static const _countdownDuration = Duration(milliseconds: 2500);
   static const _resultDuration = Duration(milliseconds: 2000);
+  static const _maxPredictionWindow = 12;
+  static const _minStableVotes = 4;
 
   @override
   void initState() {
@@ -65,6 +71,13 @@ class _AlphabetPracticeScreenState extends State<AlphabetPracticeScreen>
 
   Future<void> _init() async {
     try {
+      if (!SibiAlphabetService.supportedLetters.contains(widget.targetLetter)) {
+        setState(() {
+          _error = 'Huruf "${widget.targetLetter}" belum didukung model latihan saat ini.';
+        });
+        return;
+      }
+
       final status = await Permission.camera.request();
       if (!status.isGranted) {
         setState(() => _error = 'Izin kamera diperlukan untuk fitur ini');
@@ -83,6 +96,7 @@ class _AlphabetPracticeScreenState extends State<AlphabetPracticeScreen>
       );
 
       _sensorOrientation = camera.sensorOrientation;
+      _isFrontCamera = camera.lensDirection == CameraLensDirection.front;
 
       _cameraController = CameraController(
         camera,
@@ -95,7 +109,6 @@ class _AlphabetPracticeScreenState extends State<AlphabetPracticeScreen>
 
       // Load model
       await _sibi.initialize();
-      debugPrint('[Practice] SIBI service ready');
 
       // Mulai stream untuk deteksi realtime
       await _cameraController!.startImageStream(_onCameraFrame);
@@ -122,9 +135,14 @@ class _AlphabetPracticeScreenState extends State<AlphabetPracticeScreen>
     _isProcessingFrame = true;
 
     try {
-      final result = _sibi.detectFromCameraImage(frame, _sensorOrientation);
+      final result = _sibi.detectFromCameraImage(
+        frame,
+        _sensorOrientation,
+        _isFrontCamera,
+      );
+      final smoothed = _pushPrediction(result);
       if (mounted && !_disposed) {
-        setState(() => _liveResult = result);
+        setState(() => _liveResult = smoothed);
       }
     } finally {
       _isProcessingFrame = false;
@@ -135,6 +153,9 @@ class _AlphabetPracticeScreenState extends State<AlphabetPracticeScreen>
 
   void _startCountdown() {
     if (_disposed) return;
+    _recentPredictions.clear();
+    _missedFrames = 0;
+    _liveResult = null;
     _countdownController.reset();
     _countdownController.forward();
 
@@ -154,7 +175,10 @@ class _AlphabetPracticeScreenState extends State<AlphabetPracticeScreen>
     // Freeze deteksi saat ini — brief pause untuk UX
     Future.delayed(const Duration(milliseconds: 200), () {
       if (_disposed || !mounted) return;
-      _showResult(_liveResult);
+      _showResult(
+        _resolveStablePrediction(requireConsensus: true) ??
+            _resolveStablePrediction(requireConsensus: false),
+      );
     });
   }
 
@@ -182,6 +206,73 @@ class _AlphabetPracticeScreenState extends State<AlphabetPracticeScreen>
         _startCountdown();
       }
     });
+  }
+
+  SibiDetectionResult? _pushPrediction(SibiDetectionResult? result) {
+    if (result == null) {
+      _missedFrames++;
+      if (_missedFrames >= 3) {
+        _recentPredictions.clear();
+        return null;
+      }
+      return _resolveStablePrediction(requireConsensus: false);
+    }
+
+    _missedFrames = 0;
+    _recentPredictions.addLast(result);
+    while (_recentPredictions.length > _maxPredictionWindow) {
+      _recentPredictions.removeFirst();
+    }
+    return _resolveStablePrediction(requireConsensus: false);
+  }
+
+  SibiDetectionResult? _resolveStablePrediction({required bool requireConsensus}) {
+    if (_recentPredictions.isEmpty) return null;
+
+    final grouped = <String, List<double>>{};
+    for (final prediction in _recentPredictions) {
+      grouped.putIfAbsent(prediction.letter, () => <double>[]).add(prediction.confidence);
+    }
+
+    String? bestLetter;
+    List<double> bestScores = const [];
+
+    for (final entry in grouped.entries) {
+      if (bestLetter == null) {
+        bestLetter = entry.key;
+        bestScores = entry.value;
+        continue;
+      }
+
+      if (entry.value.length > bestScores.length) {
+        bestLetter = entry.key;
+        bestScores = entry.value;
+        continue;
+      }
+
+      if (entry.value.length == bestScores.length) {
+        final currentAvg = entry.value.reduce((a, b) => a + b) / entry.value.length;
+        final bestAvg = bestScores.reduce((a, b) => a + b) / bestScores.length;
+        if (currentAvg > bestAvg) {
+          bestLetter = entry.key;
+          bestScores = entry.value;
+        }
+      }
+    }
+
+    if (bestLetter == null || bestScores.isEmpty) return null;
+
+    final avgConfidence = bestScores.reduce((a, b) => a + b) / bestScores.length;
+    final voteRatio = bestScores.length / _recentPredictions.length;
+
+    if (requireConsensus && (bestScores.length < _minStableVotes || voteRatio < 0.5)) {
+      return null;
+    }
+
+    return SibiDetectionResult(
+      letter: bestLetter,
+      confidence: avgConfidence,
+    );
   }
 
   @override
