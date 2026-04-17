@@ -10,7 +10,6 @@ import '../../../shared/widgets/skeleton_overlay_painter.dart';
 import '../../../core/providers/communication_provider.dart';
 import '../widgets/gloss_chip_row.dart';
 import '../widgets/ai_sentence_card.dart';
-import '../widgets/push_to_start_button.dart';
 import 'package:go_router/go_router.dart';
 
 class CommDeafToHearingScreen extends ConsumerStatefulWidget {
@@ -138,6 +137,18 @@ class _CommDeafToHearingScreenState
             _buildCameraView(state)
                 .animate()
                 .fadeIn(duration: 400.ms),
+            if (state.isCapturing && state.modelInputFeatures.length >= 98)
+              Padding(
+                padding: EdgeInsets.only(
+                  top: AppSpacing.md,
+                  left: AppSpacing.xxl,
+                  right: AppSpacing.xxl,
+                ),
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: _buildModelInputPanel(state),
+                ),
+              ).animate().fadeIn(duration: 250.ms),
             SizedBox(height: AppSpacing.xl),
             // Konten di bawah kamera dengan padding normal
             Padding(
@@ -198,20 +209,8 @@ class _CommDeafToHearingScreenState
                   .fadeIn(duration: 400.ms, delay: 100.ms)
                   .slideY(begin: 0.1, end: 0),
             SizedBox(height: AppSpacing.xxxl),
-            // Push to start button
-            PushToStartButton(
-              isActive: state.isCapturing,
-              icon: Icons.pan_tool_rounded,
-              label: 'TAHAN UNTUK ISYARAT',
-              onStart: () {
-                ref.read(deafToHearingProvider.notifier).startCapture();
-                _startImageStream();
-              },
-              onStop: () {
-                _stopImageStream();
-                ref.read(deafToHearingProvider.notifier).stopCapture();
-              },
-            ).animate().fadeIn(duration: 400.ms, delay: 200.ms),
+            // ── Per-sign recording controls ──────────────────────────────────
+            _buildControls(state),
             SizedBox(height: AppSpacing.xxxl),
                 ],
               ),
@@ -283,15 +282,21 @@ class _CommDeafToHearingScreenState
                         width: 6,
                         height: 6,
                         decoration: BoxDecoration(
-                          color: state.isCapturing
-                              ? AppColors.success
-                              : (_isCameraReady ? Colors.blue : Colors.grey),
+                          color: state.isRecordingSign
+                              ? Colors.red
+                              : state.isCapturing
+                                  ? AppColors.success
+                                  : (_isCameraReady ? Colors.blue : Colors.grey),
                           shape: BoxShape.circle,
                         ),
                       ),
                       SizedBox(width: 6),
                       Text(
-                        state.isCapturing ? 'LIVE' : (_isCameraReady ? 'KAMERA' : 'LOADING'),
+                        state.isRecordingSign
+                            ? 'REC ${state.bufferProgress}/30'
+                            : state.isCapturing
+                                ? 'LIVE'
+                                : (_isCameraReady ? 'KAMERA' : 'LOADING'),
                         style: GoogleFonts.plusJakartaSans(
                           fontSize: 10,
                           fontWeight: FontWeight.w700,
@@ -303,40 +308,6 @@ class _CommDeafToHearingScreenState
                   ),
                 ),
               ),
-              // Skeleton overlay — real hand + body landmarks.
-              // Hitung crop fraction dari FittedBox.cover agar skeleton tepat
-              // overlay di atas visual kamera (terutama setelah ganti ke 4:3).
-              if (state.isCapturing && state.skeletonPoints.isNotEmpty)
-                LayoutBuilder(
-                  builder: (context, constraints) {
-                    final containerW = constraints.maxWidth;
-                    final containerH = constraints.maxHeight;
-                    // Sensor portrait: width/height di-swap karena sensorOrientation=90
-                    final sensorW = (_cameraController?.value.previewSize?.height ?? 480).toDouble();
-                    final sensorH = (_cameraController?.value.previewSize?.width ?? 640).toDouble();
-                    final containerAR = containerW / containerH;
-                    final sensorAR = sensorW / sensorH;
-                    double cropFracY = 0.0, cropFracX = 0.0;
-                    if (containerAR > sensorAR) {
-                      // Container lebih lebar → FittedBox.cover crop atas+bawah (Y)
-                      final scaledH = sensorH * (containerW / sensorW);
-                      cropFracY = ((scaledH - containerH) / 2) / scaledH;
-                    } else if (sensorAR > containerAR) {
-                      // Sensor lebih lebar → FittedBox.cover crop kiri+kanan (X)
-                      final scaledW = sensorW * (containerH / sensorH);
-                      cropFracX = ((scaledW - containerW) / 2) / scaledW;
-                    }
-                    return CustomPaint(
-                      size: Size(containerW, containerH),
-                      painter: SkeletonOverlayPainter(
-                        landmarks: state.skeletonPoints,
-                        isActive: state.isCapturing,
-                        cropFracY: cropFracY.clamp(0.0, 0.45),
-                        cropFracX: cropFracX.clamp(0.0, 0.45),
-                      ),
-                    );
-                  },
-                ),
               // Processing indicator
               if (state.isProcessing)
                 Center(
@@ -412,6 +383,276 @@ class _CommDeafToHearingScreenState
     );
   }
 
+  Widget _buildModelInputPanel(DeafToHearingState state) {
+    // Check if any hand data exists for status indicator
+    bool hasHandData = false;
+    if (state.modelInputFeatures.length >= 84) {
+      for (int i = 0; i < 84; i++) {
+        if (state.modelInputFeatures[i].abs() > 1e-6) {
+          hasHandData = true;
+          break;
+        }
+      }
+    }
+
+    return Container(
+      width: 150,
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: Colors.black.withOpacity(0.68),
+        borderRadius: BorderRadius.circular(AppRadius.lg),
+        border: Border.all(
+          color: Colors.white.withOpacity(0.12),
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.2),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Text(
+                'MODEL INPUT',
+                style: GoogleFonts.robotoMono(
+                  fontSize: 10,
+                  fontWeight: FontWeight.w700,
+                  color: Colors.white.withOpacity(0.9),
+                  letterSpacing: 1,
+                ),
+              ),
+              const Spacer(),
+              Container(
+                width: 6,
+                height: 6,
+                decoration: BoxDecoration(
+                  color: hasHandData
+                      ? const Color(0xFF1D9E75)
+                      : Colors.grey.withOpacity(0.5),
+                  shape: BoxShape.circle,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Container(
+            height: 170,
+            decoration: BoxDecoration(
+              color: Colors.white.withOpacity(0.05),
+              borderRadius: BorderRadius.circular(AppRadius.md),
+            ),
+            child: CustomPaint(
+              size: const Size(150, 170),
+              painter: ModelInputPainter(
+                features: state.modelInputFeatures,
+                isActive: state.isCapturing,
+              ),
+            ),
+          ),
+          if (!hasHandData)
+            Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: Text(
+                'Tidak ada tangan',
+                style: GoogleFonts.robotoMono(
+                  fontSize: 8,
+                  color: Colors.white.withOpacity(0.35),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  /// Per-sign recording UI: start/stop session + record one sign per press.
+  Widget _buildControls(DeafToHearingState state) {
+    final notifier = ref.read(deafToHearingProvider.notifier);
+    const seqLen = 30;
+    final progress = state.bufferProgress / seqLen;
+
+    return Column(
+      children: [
+        // ── Row 1: Session toggle + optional gloss actions ──────────────
+        Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            // Start / Stop session
+            _ControlButton(
+              icon: state.isCapturing ? Icons.stop_rounded : Icons.videocam_rounded,
+              label: state.isCapturing ? 'STOP' : 'MULAI',
+              color: state.isCapturing ? AppColors.error : AppColors.primary,
+              onTap: () {
+                if (state.isCapturing) {
+                  _stopImageStream();
+                  notifier.stopCapture();
+                } else {
+                  notifier.startCapture();
+                  _startImageStream();
+                }
+              },
+            ),
+            if (state.isCapturing && state.currentGloss.isNotEmpty) ...([
+              SizedBox(width: AppSpacing.md),
+              // Remove last word
+              _ControlButton(
+                icon: Icons.backspace_rounded,
+                label: 'HAPUS',
+                color: Colors.orange,
+                onTap: () => notifier.removeLastWord(),
+              ),
+              SizedBox(width: AppSpacing.md),
+              // Clear all
+              _ControlButton(
+                icon: Icons.clear_all_rounded,
+                label: 'RESET',
+                color: Colors.grey,
+                onTap: () => notifier.clearGloss(),
+              ),
+            ]),
+          ],
+        ),
+
+        if (state.isCapturing) ...(
+          [
+            SizedBox(height: AppSpacing.xl),
+
+            // ── Row 2: Record sign button with circular progress ─────────
+            // Tap to start recording, tap again to cancel.
+            // Auto-completes when 30 frames collected.
+            GestureDetector(
+              onTap: () {
+                if (state.isRecordingSign) {
+                  notifier.cancelSignRecording();
+                } else {
+                  notifier.startSignRecording();
+                }
+              },
+              child: Stack(
+                alignment: Alignment.center,
+                children: [
+                  // Circular progress ring
+                  SizedBox(
+                    width: 88,
+                    height: 88,
+                    child: CircularProgressIndicator(
+                      value: state.isRecordingSign ? progress : 0.0,
+                      strokeWidth: 4,
+                      backgroundColor: Colors.white.withOpacity(0.12),
+                      valueColor: AlwaysStoppedAnimation(
+                        state.isRecordingSign
+                            ? AppColors.primary
+                            : Colors.transparent,
+                      ),
+                    ),
+                  ),
+                  // Inner button
+                  AnimatedContainer(
+                    duration: const Duration(milliseconds: 120),
+                    width: state.isRecordingSign ? 72 : 76,
+                    height: state.isRecordingSign ? 72 : 76,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: state.isRecordingSign
+                          ? AppColors.primary
+                          : AppColors.primary.withOpacity(0.15),
+                      border: Border.all(
+                        color: AppColors.primary.withOpacity(0.6),
+                        width: 2,
+                      ),
+                      boxShadow: state.isRecordingSign
+                          ? [
+                              BoxShadow(
+                                color: AppColors.primary.withOpacity(0.35),
+                                blurRadius: 18,
+                                spreadRadius: 4,
+                              )
+                            ]
+                          : [],
+                    ),
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(
+                          state.isRecordingSign
+                              ? Icons.fiber_manual_record
+                              : Icons.pan_tool_alt_rounded,
+                          color: state.isRecordingSign
+                              ? Colors.white
+                              : AppColors.primary,
+                          size: 22,
+                        ),
+                        if (state.isRecordingSign)
+                          Text(
+                            '${state.bufferProgress}/30',
+                            style: GoogleFonts.robotoMono(
+                              fontSize: 10,
+                              color: Colors.white70,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
+            SizedBox(height: AppSpacing.md),
+            Text(
+              state.isRecordingSign
+                  ? 'Merekam... ${state.bufferProgress}/30 frame'
+                  : 'Ketuk untuk rekam satu isyarat',
+              style: GoogleFonts.beVietnamPro(
+                fontSize: 12,
+                color: Colors.white.withOpacity(state.isRecordingSign ? 0.9 : 0.5),
+                fontWeight: state.isRecordingSign
+                    ? FontWeight.w600
+                    : FontWeight.w400,
+              ),
+            ),
+
+            // ── Row 3: Send to AI ────────────────────────────────────────
+            if (state.currentGloss.isNotEmpty && !state.isProcessing)
+              Padding(
+                padding: EdgeInsets.only(top: AppSpacing.lg),
+                child: SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton.icon(
+                    onPressed: () => notifier.sendToAI(),
+                    icon: Icon(Icons.auto_awesome_rounded, size: 18),
+                    label: Text(
+                      'Kirim ke AI  [${state.currentGloss.map((w) => w.toUpperCase()).join(" | ")}]',
+                      style: GoogleFonts.beVietnamPro(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF6B48FF),
+                      foregroundColor: Colors.white,
+                      padding: EdgeInsets.symmetric(
+                        horizontal: AppSpacing.xl,
+                        vertical: AppSpacing.md,
+                      ),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(AppRadius.lg),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+          ]
+        ),
+      ],
+    );
+  }
+
   void _handleNavTap(BuildContext context, int index) {
     switch (index) {
       case 0:
@@ -427,6 +668,53 @@ class _CommDeafToHearingScreenState
         context.push('/settings');
         break;
     }
+  }
+}
+
+/// Small round icon button used in per-sign control row.
+class _ControlButton extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final Color color;
+  final VoidCallback onTap;
+
+  const _ControlButton({
+    required this.icon,
+    required this.label,
+    required this.color,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 52,
+            height: 52,
+            decoration: BoxDecoration(
+              color: color.withOpacity(0.15),
+              shape: BoxShape.circle,
+              border: Border.all(color: color.withOpacity(0.5), width: 1.5),
+            ),
+            child: Icon(icon, color: color, size: 22),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            label,
+            style: GoogleFonts.robotoMono(
+              fontSize: 8,
+              color: color.withOpacity(0.7),
+              fontWeight: FontWeight.w700,
+              letterSpacing: 0.8,
+            ),
+          ),
+        ],
+      ),
+    );
   }
 }
 

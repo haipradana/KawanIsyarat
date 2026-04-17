@@ -1,12 +1,11 @@
 import 'dart:async';
 import 'dart:io';
-import 'dart:ui';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:record/record.dart';
 import '../services/gesture_service.dart';
-import '../services/mediapipe_service.dart';
 import '../services/gemma_service.dart';
 import '../services/stt_service.dart';
 import '../services/model_manager.dart';
@@ -19,12 +18,16 @@ import '../../shared/models/user_persona.dart';
 class DeafToHearingState {
   final List<String> currentGloss;
   final String refinedSentence;
-  /// Saran empatik dari Gemma untuk lawan bicara (orang dengar).
   final String? aiSuggestion;
   final bool isCapturing;
   final bool isProcessing;
-  final List<Offset> skeletonPoints;
+  /// 98-dim nose-centered model input features for debug visualization.
+  final List<double> modelInputFeatures;
   final String? errorMessage;
+  /// Per-sign recording: how many frames collected (0..30).
+  final int bufferProgress;
+  /// True while recording one sign (0→30 frames).
+  final bool isRecordingSign;
 
   const DeafToHearingState({
     this.currentGloss = const [],
@@ -32,8 +35,10 @@ class DeafToHearingState {
     this.aiSuggestion,
     this.isCapturing = false,
     this.isProcessing = false,
-    this.skeletonPoints = const [],
+    this.modelInputFeatures = const [],
     this.errorMessage,
+    this.bufferProgress = 0,
+    this.isRecordingSign = false,
   });
 
   DeafToHearingState copyWith({
@@ -42,9 +47,11 @@ class DeafToHearingState {
     String? aiSuggestion,
     bool? isCapturing,
     bool? isProcessing,
-    List<Offset>? skeletonPoints,
+    List<double>? modelInputFeatures,
     String? errorMessage,
     bool clearAiSuggestion = false,
+    int? bufferProgress,
+    bool? isRecordingSign,
   }) {
     return DeafToHearingState(
       currentGloss: currentGloss ?? this.currentGloss,
@@ -52,8 +59,10 @@ class DeafToHearingState {
       aiSuggestion: clearAiSuggestion ? null : (aiSuggestion ?? this.aiSuggestion),
       isCapturing: isCapturing ?? this.isCapturing,
       isProcessing: isProcessing ?? this.isProcessing,
-      skeletonPoints: skeletonPoints ?? this.skeletonPoints,
+      modelInputFeatures: modelInputFeatures ?? this.modelInputFeatures,
       errorMessage: errorMessage,
+      bufferProgress: bufferProgress ?? this.bufferProgress,
+      isRecordingSign: isRecordingSign ?? this.isRecordingSign,
     );
   }
 }
@@ -67,170 +76,176 @@ class DeafToHearingNotifier extends StateNotifier<DeafToHearingState> {
   DeafToHearingNotifier() : super(const DeafToHearingState());
 
   final _gestureService = GestureService();
-  final _mediaPipe = MediaPipeService();
   final _gemmaService = GemmaService();
   final _ttsService = TtsService();
 
   bool _isProcessingFrame = false;
   bool _isRefining = false;
 
-  /// Initialize gesture services (LSTM model + MediaPipe).
-  /// Call once from screen initState after camera is ready.
+  /// Initialize gesture services (model + MediaPipe).
   Future<void> initializeServices() async {
     debugPrint('[DeafToHearing] Initializing GestureService...');
     try {
       await _gestureService.initialize();
-      debugPrint('[DeafToHearing] LSTM model loaded: ${_gestureService.isModelLoaded}');
+      debugPrint('[DeafToHearing] Model loaded: ${_gestureService.isModelLoaded}');
     } catch (e, st) {
-      debugPrint('[DeafToHearing] initializeServices FAILED: $e');
-      debugPrint('[DeafToHearing] Stack: $st');
+      debugPrint('[DeafToHearing] initializeServices FAILED: $e\n$st');
     }
   }
 
-  /// Called every camera frame while capturing.
-  /// Extracts keypoints via MediaPipe, feeds to LSTM buffer,
-  /// and updates skeleton overlay.
-  void onCameraFrame(dynamic cameraImage, double previewW, double previewH, {int sensorOrientation = 90}) {
+  /// Called every camera frame. Only runs MediaPipe when capturing.
+  void onCameraFrame(dynamic cameraImage, double previewW, double previewH,
+      {int sensorOrientation = 90}) {
     if (!state.isCapturing || _isProcessingFrame) return;
     _isProcessingFrame = true;
 
-    _gestureService.addFrameFromCameraAsync(cameraImage, sensorOrientation).then((keypoints) {
+    _gestureService
+        .addFrameFromCameraAsync(cameraImage, sensorOrientation)
+        .then((_) {
       if (!mounted) return;
       _isProcessingFrame = false;
-
-      // Skeleton overlay — normalized (0-1) coords: pose + both hands
-      // LSTM tetap pakai full 258 floats, overlay hanya visual
-      final pose = _getPoseSkeletonPoints(keypoints, sensorOrientation);
-      final rightHand = _mediaPipe.getHandLandmarkPositions(
-        keypoints, const Size(1.0, 1.0),
-        rightHand: true, sensorOrientation: sensorOrientation,
-      );
-      final leftHand = _mediaPipe.getHandLandmarkPositions(
-        keypoints, const Size(1.0, 1.0),
-        rightHand: false, sensorOrientation: sensorOrientation,
-      );
-      state = state.copyWith(skeletonPoints: [...pose, ...rightHand, ...leftHand]);
+      // Update debug panel with latest 98-dim features
+      final modelInput = _gestureService.lastRawFeaturesForDebug;
+      state = state.copyWith(modelInputFeatures: modelInput);
     }).catchError((e) {
       _isProcessingFrame = false;
-      debugPrint('[DeafToHearing] Frame processing error: $e');
+      debugPrint('[DeafToHearing] Frame error: $e');
     });
   }
 
+  // ── Session lifecycle ────────────────────────────────────────────────────
+
+  /// Enter gesture session: enables MediaPipe + camera stream.
   void startCapture() {
     if (!_gestureService.isModelLoaded) {
       state = state.copyWith(
-        errorMessage: 'Model LSTM belum dimuat. Restart halaman ini.',
+        errorMessage: 'Model belum dimuat. Restart halaman ini.',
       );
       return;
     }
-
     state = state.copyWith(
       isCapturing: true,
       currentGloss: [],
       refinedSentence: '',
       errorMessage: null,
+      bufferProgress: 0,
+      isRecordingSign: false,
       clearAiSuggestion: true,
     );
-
-    _gestureService.startGestureCapture(onWordCommitted: _onGestureWordCommitted);
+    _gestureService.startGestureCapture();
   }
 
-  void _onGestureWordCommitted(GestureResult result) {
-    if (!mounted) return;
-    final newGloss = [...state.currentGloss, result.word];
-    state = state.copyWith(currentGloss: newGloss);
-    debugPrint('[DeafToHearing] Word committed: ${result.word} → gloss=${newGloss.join(" | ")}');
-  }
-
-  /// Extract pose landmarks (33) dari keypoint array untuk OVERLAY saja.
-  /// LSTM tetap pakai keypoints asli (258 floats) — method ini hanya untuk visual.
-  ///
-  /// Pose dari ML Kit disimpan dalam sensor/landscape space (karena sensorOrientation=90).
-  /// Untuk tampil di portrait canvas: swap x↔y (landscape → portrait).
-  /// Painter akan mirror x untuk front camera selfie view.
-  ///
-  /// Landmark di luar frame (misal kaki/pinggul saat selfie upper-body) menggunakan
-  /// sentinel Offset(-2, -2) agar painter skip tanpa distorsi koneksi ke pinggir layar.
-  List<Offset> _getPoseSkeletonPoints(List<double> keypoints, int sensorOrientation) {
-    const sentinel = Offset(-2, -2); // invisible — diluar frame visible
-    const margin = 0.08; // toleransi 8% di luar batas (landmark sedikit terpotong masih oke)
-    final points = <Offset>[];
-    final needSwap = sensorOrientation == 90 || sensorOrientation == 270;
-    for (int i = 0; i < 33 && i * 4 + 1 < keypoints.length; i++) {
-      final lx = keypoints[i * 4];     // landscape x (normalized)
-      final ly = keypoints[i * 4 + 1]; // landscape y (normalized)
-      double px, py;
-      if (needSwap) {
-        // 90° CW rotation: portrait_x = landscape_y, portrait_y = 1 - landscape_x
-        px = ly;
-        py = 1.0 - lx;
-      } else {
-        px = lx;
-        py = ly;
-      }
-      // Landmark di luar frame visible → sentinel (jangan gambar ke pinggir layar)
-      if (px < -margin || px > 1.0 + margin || py < -margin || py > 1.0 + margin) {
-        points.add(sentinel);
-      } else {
-        points.add(Offset(px, py));
-      }
-    }
-    return points;
-  }
-
-  /// Stop capture. Uses words accumulated during continuous recognition,
-  /// or falls back to single predict() if nothing was committed yet.
-  Future<void> stopCapture() async {
+  /// Exit gesture session.
+  void stopCapture() {
     _gestureService.stopGestureCapture();
-    state = state.copyWith(isCapturing: false, isProcessing: true);
+    state = state.copyWith(
+      isCapturing: false,
+      isRecordingSign: false,
+      bufferProgress: 0,
+      isProcessing: false,
+    );
+  }
 
-    List<String> glossList = List.from(state.currentGloss);
+  // ── Per-sign recording (matches test_video.py) ───────────────────────────
 
-    // Fallback: if no words committed via continuous, try one final predict
-    if (glossList.isEmpty) {
-      debugPrint('[DeafToHearing] No continuous words — final predict: buffer=${_gestureService.bufferLength} frames');
-      final result = _gestureService.predict();
-      if (result != null) {
-        debugPrint('[DeafToHearing] Final predict: "${result.word}" (${(result.confidence * 100).toStringAsFixed(1)}%)');
-        glossList = [result.word];
-        state = state.copyWith(currentGloss: glossList);
-      }
-    } else {
-      debugPrint('[DeafToHearing] Gloss from continuous: ${glossList.join(" | ")}');
-    }
+  /// Start recording ONE sign — collects 30 frames then auto-predicts.
+  /// Call on button press-down.
+  void startSignRecording() {
+    if (!state.isCapturing || state.isRecordingSign) return;
+    state = state.copyWith(
+      isRecordingSign: true,
+      bufferProgress: 0,
+      errorMessage: null,
+    );
+    _gestureService.startSignRecording(
+      onSignDetected: _onSignDetected,
+      onProgress: (count) {
+        if (!mounted) return;
+        state = state.copyWith(bufferProgress: count);
+      },
+    );
+    debugPrint('[DeafToHearing] startSignRecording');
+  }
 
-    if (glossList.isEmpty) {
-      state = state.copyWith(
-        isProcessing: false,
-        errorMessage: 'Isyarat kurang jelas. Coba lagi.',
-      );
+  /// Cancel current sign recording (e.g. user released button early).
+  void cancelSignRecording() {
+    if (!state.isRecordingSign) return;
+    _gestureService.cancelSignRecording();
+    state = state.copyWith(isRecordingSign: false, bufferProgress: 0);
+  }
+
+  void _onSignDetected(GestureResult result) {
+    if (!mounted) return;
+
+    state = state.copyWith(
+      isRecordingSign: false,
+      bufferProgress: 0,
+    );
+
+    if (result.labelIndex < 0) {
+      // No confident prediction
+      debugPrint('[DeafToHearing] Sign not recognized (low confidence)');
+      state = state.copyWith(errorMessage: 'Isyarat tidak dikenali. Coba lagi.');
       return;
     }
 
+    final newGloss = [...state.currentGloss, result.word];
+    debugPrint(
+      '[DeafToHearing] Sign: ${result.word} '
+      '(${(result.confidence * 100).toStringAsFixed(1)}%) '
+      '→ gloss=[${newGloss.join("|").toUpperCase()}]',
+    );
+    state = state.copyWith(currentGloss: newGloss, errorMessage: null);
+  }
+
+  // ── AI finalization ──────────────────────────────────────────────────────
+
+  /// Send accumulated gloss list to Gemma for refinement.
+  Future<void> sendToAI() async {
+    final glossList = List<String>.from(state.currentGloss);
+    if (glossList.isEmpty) {
+      state = state.copyWith(errorMessage: 'Belum ada isyarat yang direkam.');
+      return;
+    }
     await _refineCurrentGloss(glossList);
   }
 
+  /// Delete the last committed word from gloss.
+  void removeLastWord() {
+    if (state.currentGloss.isEmpty) return;
+    final trimmed = state.currentGloss.sublist(0, state.currentGloss.length - 1);
+    state = state.copyWith(
+      currentGloss: trimmed,
+      refinedSentence: '',
+      errorMessage: null,
+    );
+  }
+
+  /// Clear all gloss words.
+  void clearGloss() {
+    state = state.copyWith(
+      currentGloss: [],
+      refinedSentence: '',
+      errorMessage: null,
+      clearAiSuggestion: true,
+    );
+  }
+
   Future<void> _refineCurrentGloss(List<String> gloss) async {
-    if (_isRefining) return; // Cactus native model tidak thread-safe
+    if (_isRefining) return;
     _isRefining = true;
     state = state.copyWith(isProcessing: true, clearAiSuggestion: true);
     try {
       final cleanedGloss = _cleanGlossForInference(gloss);
       debugPrint(
-        '[DeafToHearing] Gloss cleaned for Gemma: ${gloss.join(" | ")} '
-        '=> ${cleanedGloss.join(" ")}',
+        '[DeafToHearing] Sending to Gemma: [${cleanedGloss.join(" | ")}]',
       );
 
-      // Step 1: Gloss → kalimat (same _infer as simplifyForDeaf — cepat ~4-9s)
       final sentence = await _gemmaService.refineGloss(cleanedGloss);
       if (mounted) {
-        state = state.copyWith(
-          refinedSentence: sentence,
-          isProcessing: false, // Tampilkan kalimat segera
-        );
+        state = state.copyWith(refinedSentence: sentence, isProcessing: false);
       }
 
-      // Step 2: Saran empatik (async, non-blocking — user sudah lihat kalimat)
       if (mounted && sentence.isNotEmpty && gloss.length > 1) {
         final suggestion = await _gemmaService.getEmpathySuggestion(sentence);
         if (mounted && suggestion != null && suggestion.isNotEmpty) {
@@ -244,18 +259,14 @@ class DeafToHearingNotifier extends StateNotifier<DeafToHearingState> {
 
   List<String> _cleanGlossForInference(List<String> gloss) {
     final cleaned = <String>[];
-
     for (final rawToken in gloss) {
       final token = rawToken.trim();
-      if (token.isEmpty || token == '|') continue;
-
+      if (token.isEmpty || token == '?') continue;
       final normalized = token.toUpperCase();
       final last = cleaned.isNotEmpty ? cleaned.last.toUpperCase() : null;
       if (normalized == last) continue;
-
       cleaned.add(token);
     }
-
     return cleaned;
   }
 

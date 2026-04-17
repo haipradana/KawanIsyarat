@@ -1,42 +1,23 @@
 import 'dart:math';
 import 'package:flutter/material.dart';
 
-/// Draws MediaPipe skeleton: pose (body) + both hands on camera preview.
-/// Expects normalized (0-1) landmark coordinates — scales to actual canvas size.
-/// Mirrors X axis for front camera selfie view.
+/// Draws the 98-dim model input: 2 hands (21 landmarks each) + 7 pose anchors.
+/// All coordinates are nose-centered (origin = nose).
 ///
-/// Landmark order:
-///   [0-32]    = pose (33 landmarks: spine, arms, legs, face)
-///   [33-53]   = right hand (21 landmarks)
-///   [54-74]   = left hand (21 landmarks)
-class SkeletonOverlayPainter extends CustomPainter {
-  final List<Offset> landmarks;
+/// Feature layout (98 floats):
+///   [0:42]   = Right hand 21×(x,y)
+///   [42:84]  = Left hand 21×(x,y)
+///   [84:86]  = Nose (always ~0,0)
+///   [86:88]  = Left shoulder
+///   [88:90]  = Right shoulder
+///   [90:92]  = Left ear
+///   [92:94]  = Right ear
+///   [94:96]  = Left elbow
+///   [96:98]  = Right elbow
+class ModelInputPainter extends CustomPainter {
+  /// 98-dim nose-centered features from GestureService.
+  final List<double> features;
   final bool isActive;
-
-  /// Fraksi sensor yang di-crop oleh FittedBox.cover.
-  /// cropFracY: berapa fraksi sensor Y yang dipotong dari atas DAN bawah.
-  /// cropFracX: berapa fraksi sensor X yang dipotong dari kiri DAN kanan.
-  /// Dicompute dari LayoutBuilder + previewSize di screen.
-  final double cropFracY;
-  final double cropFracX;
-
-  /// Pose bone connections (MediaPipe Pose 33 landmarks).
-  static const _poseConnections = [
-    // Torso/spine
-    [11, 12], // shoulders
-    [11, 23], [12, 24], // shoulders to hips
-    [23, 24], // hips
-    // Left arm
-    [12, 14], [14, 16], // shoulder-elbow-wrist
-    [16, 20], [16, 18], // wrist-pinky, wrist-index
-    // Right arm
-    [11, 13], [13, 15], // shoulder-elbow-wrist
-    [15, 19], [15, 17], // wrist-pinky, wrist-index
-    // Left leg
-    [24, 26], [26, 28], [28, 30], [30, 32], // hip-knee-ankle-toe
-    // Right leg
-    [23, 25], [25, 27], [27, 29], [29, 31], // hip-knee-ankle-toe
-  ];
 
   /// Hand bone connections (21 MediaPipe hand landmarks).
   static const _handConnections = [
@@ -48,135 +29,228 @@ class SkeletonOverlayPainter extends CustomPainter {
     [5, 9], [9, 13], [13, 17],                // palm
   ];
 
-  const SkeletonOverlayPainter({
-    required this.landmarks,
+  /// Pose anchor indices → conceptual connections.
+  /// Anchors: nose(0), L_shoulder(1), R_shoulder(2), L_ear(3), R_ear(4), L_elbow(5), R_elbow(6)
+  static const _anchorConnections = [
+    [0, 3], [0, 4],   // nose → ears
+    [1, 2],            // shoulders
+    [1, 5], [2, 6],   // shoulders → elbows
+  ];
+
+  const ModelInputPainter({
+    required this.features,
     this.isActive = true,
-    this.cropFracY = 0.0,
-    this.cropFracX = 0.0,
   });
 
   @override
   void paint(Canvas canvas, Size size) {
-    if (!isActive || landmarks.isEmpty) return;
+    if (!isActive || features.length < 98) return;
+
+    // Check if any hand data exists
+    bool hasAnyData = false;
+    for (int i = 0; i < 84; i++) {
+      if (features[i].abs() > 1e-6) {
+        hasAnyData = true;
+        break;
+      }
+    }
+    // Also check anchors
+    if (!hasAnyData) {
+      for (int i = 84; i < 98; i++) {
+        if (features[i].abs() > 1e-6) {
+          hasAnyData = true;
+          break;
+        }
+      }
+    }
+    if (!hasAnyData) return;
+
+    // ── Collect all visible points to compute bounding box ──────────────
+    final allPoints = <Offset>[];
+
+    // Right hand [0:42]
+    final rightHandPoints = _extractHandPoints(0);
+    allPoints.addAll(rightHandPoints.where((p) => p != Offset.zero));
+
+    // Left hand [42:84]
+    final leftHandPoints = _extractHandPoints(42);
+    allPoints.addAll(leftHandPoints.where((p) => p != Offset.zero));
+
+    // Anchors [84:98] — 7 points
+    final anchorPoints = <Offset>[];
+    for (int i = 0; i < 7; i++) {
+      final x = features[84 + i * 2];
+      final y = features[84 + i * 2 + 1];
+      anchorPoints.add(Offset(x, y));
+      if (x.abs() > 1e-6 || y.abs() > 1e-6) {
+        allPoints.add(Offset(x, y));
+      }
+    }
+
+    if (allPoints.length < 2) return;
+
+    // ── Compute fit-to-bounds transform ─────────────────────────────────
+    double minX = allPoints.first.dx, maxX = allPoints.first.dx;
+    double minY = allPoints.first.dy, maxY = allPoints.first.dy;
+    for (final p in allPoints) {
+      minX = min(minX, p.dx);
+      maxX = max(maxX, p.dx);
+      minY = min(minY, p.dy);
+      maxY = max(maxY, p.dy);
+    }
+
+    final contentW = max(maxX - minX, 0.001);
+    final contentH = max(maxY - minY, 0.001);
+    final padX = size.width * 0.10;
+    final padY = size.height * 0.10;
+    final targetW = max(size.width - padX * 2, 1.0);
+    final targetH = max(size.height - padY * 2, 1.0);
+    final scale = min(targetW / contentW, targetH / contentH);
+    final offX = (size.width - contentW * scale) / 2;
+    final offY = (size.height - contentH * scale) / 2;
+
+    Offset transform(Offset p) {
+      return Offset(
+        (p.dx - minX) * scale + offX,
+        (p.dy - minY) * scale + offY,
+      );
+    }
+
+    // ── draw anchors ────────────────────────────────────────────────────
+    final anchorLinePaint = Paint()
+      ..color = const Color(0xFF1D9E75).withOpacity(0.35)
+      ..strokeWidth = 1.2
+      ..style = PaintingStyle.stroke;
+
+    final anchorDotPaint = Paint()
+      ..color = const Color(0xFF1D9E75).withOpacity(0.5)
+      ..style = PaintingStyle.fill;
+
+    // Anchor connections
+    for (final conn in _anchorConnections) {
+      final a = anchorPoints[conn[0]];
+      final b = anchorPoints[conn[1]];
+      if ((a.dx.abs() > 1e-6 || a.dy.abs() > 1e-6) &&
+          (b.dx.abs() > 1e-6 || b.dy.abs() > 1e-6)) {
+        canvas.drawLine(transform(a), transform(b), anchorLinePaint);
+      }
+    }
+
+    // Anchor dots (small, dim)
+    for (final p in anchorPoints) {
+      if (p.dx.abs() > 1e-6 || p.dy.abs() > 1e-6) {
+        final tp = transform(p);
+        canvas.drawCircle(tp, 3, anchorDotPaint);
+      }
+    }
+
+    // Nose marker (special — center of feature space)
+    final noseP = anchorPoints[0];
+    if (noseP.dx.abs() < 0.01 && noseP.dy.abs() < 0.01) {
+      // Nose is at origin (success)
+      final tp = transform(noseP);
+      canvas.drawCircle(
+        tp,
+        4,
+        Paint()
+          ..color = const Color(0xFFFFFFFF).withOpacity(0.5)
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 1.0,
+      );
+    }
+
+    // ── Draw hands ──────────────────────────────────────────────────────
+    _drawHand(canvas, rightHandPoints, transform,
+      color: const Color(0xFF1D9E75), label: 'R');
+    _drawHand(canvas, leftHandPoints, transform,
+      color: const Color(0xFF4FC3F7), label: 'L');
+  }
+
+  List<Offset> _extractHandPoints(int startIdx) {
+    final points = <Offset>[];
+    for (int i = 0; i < 21; i++) {
+      final x = features[startIdx + i * 2];
+      final y = features[startIdx + i * 2 + 1];
+      points.add(Offset(x, y));
+    }
+    return points;
+  }
+
+  void _drawHand(
+    Canvas canvas,
+    List<Offset> points,
+    Offset Function(Offset) transform, {
+    required Color color,
+    required String label,
+  }) {
+    // Check if hand has data
+    bool hasData = false;
+    for (final p in points) {
+      if (p.dx.abs() > 1e-6 || p.dy.abs() > 1e-6) {
+        hasData = true;
+        break;
+      }
+    }
+    if (!hasData) return;
 
     final linePaint = Paint()
-      ..color = const Color(0xFF1D9E75).withOpacity(0.7)
+      ..color = color.withOpacity(0.65)
       ..strokeWidth = 1.5
       ..style = PaintingStyle.stroke;
 
     final dotPaint = Paint()
-      ..color = const Color(0xFF1D9E75)
+      ..color = color
       ..style = PaintingStyle.fill;
 
     final glowPaint = Paint()
-      ..color = const Color(0xFF1D9E75).withOpacity(0.25)
+      ..color = color.withOpacity(0.2)
       ..style = PaintingStyle.fill;
 
     final highlightPaint = Paint()
-      ..color = Colors.white.withOpacity(0.8)
+      ..color = Colors.white.withOpacity(0.7)
       ..style = PaintingStyle.fill;
 
-    // Koordinat sudah di-swap landscape→portrait di provider.
-    // Mirror X untuk front camera selfie: (1.0 - x).
-    // Sentinel Offset(-2,-2) dipertahankan apa adanya (dx<0) agar painter bisa skip.
-    //
-    // Crop correction: FittedBox.cover memotong sensor frame agar mengisi container.
-    // Contoh AspectRatio 4/3 dengan sensor portrait 3/4:
-    //   sensor y=[0,1] → container hanya tampilkan y=[cropFracY, 1-cropFracY]
-    //   → perlu remap: container_y = (sensor_y - cropFracY) / (1 - 2*cropFracY)
-    final rangeY = cropFracY > 0 ? (1.0 - 2 * cropFracY) : 1.0;
-    final rangeX = cropFracX > 0 ? (1.0 - 2 * cropFracX) : 1.0;
-    final scaled = landmarks.map((p) {
-      if (p.dx < 0) return p; // sentinel — landmark di luar frame, jangan scale
-      final mirroredX = 1.0 - p.dx; // mirror untuk front camera selfie
-      final corrX = cropFracX > 0 ? (mirroredX - cropFracX) / rangeX : mirroredX;
-      final corrY = cropFracY > 0 ? (p.dy - cropFracY) / rangeY : p.dy;
-      return Offset(corrX * size.width, corrY * size.height);
-    }).toList();
-
-    // Draw pose (first 33 points)
-    if (scaled.length >= 33) {
-      final pose = scaled.sublist(0, 33);
-      _drawPose(canvas, pose, linePaint, dotPaint, glowPaint, highlightPaint);
-    }
-
-    // Draw right hand (points 33-53, 21 landmarks)
-    if (scaled.length > 33 && scaled.length <= 54) {
-      final rightHand = scaled.sublist(33);
-      _drawHand(canvas, rightHand, linePaint, dotPaint, glowPaint, highlightPaint);
-    } else if (scaled.length > 54) {
-      final rightHand = scaled.sublist(33, 54);
-      _drawHand(canvas, rightHand, linePaint, dotPaint, glowPaint, highlightPaint);
-    }
-
-    // Draw left hand (points 54+, 21 landmarks)
-    if (scaled.length > 54) {
-      final leftHand = scaled.sublist(54, min(75, scaled.length));
-      _drawHand(canvas, leftHand, linePaint, dotPaint, glowPaint, highlightPaint);
-    }
-  }
-
-  void _drawPose(Canvas canvas, List<Offset> points, Paint linePaint, Paint dotPaint, Paint glowPaint, Paint highlightPaint) {
-    if (points.length < 33) return;
-
-    // Draw pose connections — skip jika salah satu ujung di luar frame (sentinel dx<0)
-    for (final conn in _poseConnections) {
-      if (conn[0] < points.length && conn[1] < points.length) {
-        final p1 = points[conn[0]];
-        final p2 = points[conn[1]];
-        // Sentinel Offset(-2,-2) → dx<0 → skip. Hanya gambar jika kedua titik visible.
-        if (p1.dx >= 0 && p2.dx >= 0) {
-          canvas.drawLine(p1, p2, linePaint);
-        }
-      }
-    }
-
-    // Draw pose dots (lighter than hands)
-    final poseDotPaint = Paint()
-      ..color = const Color(0xFF1D9E75).withOpacity(0.6)
-      ..style = PaintingStyle.fill;
-    final poseGlowPaint = Paint()
-      ..color = const Color(0xFF1D9E75).withOpacity(0.15)
-      ..style = PaintingStyle.fill;
-
-    for (int i = 0; i < points.length; i++) {
-      final point = points[i];
-      // Skip face landmarks (0-10) dan sentinel (dx<0 = di luar frame)
-      // LSTM tetap baca face landmarks dari 258 floats — ini hanya visual overlay
-      if (i <= 10 || point.dx < 0) continue;
-
-      canvas.drawCircle(point, 4, poseGlowPaint);
-      canvas.drawCircle(point, 2, poseDotPaint);
-    }
-  }
-
-  void _drawHand(Canvas canvas, List<Offset> points, Paint linePaint, Paint dotPaint, Paint glowPaint, Paint highlightPaint) {
-    if (points.isEmpty) return;
-
-    // Draw hand connections
+    // Draw connections
     for (final conn in _handConnections) {
       if (conn[0] < points.length && conn[1] < points.length) {
-        final p1 = points[conn[0]];
-        final p2 = points[conn[1]];
-        if ((p1.dx != 0 || p1.dy != 0) && (p2.dx != 0 || p2.dy != 0)) {
-          canvas.drawLine(p1, p2, linePaint);
+        final a = points[conn[0]];
+        final b = points[conn[1]];
+        if ((a.dx.abs() > 1e-6 || a.dy.abs() > 1e-6) &&
+            (b.dx.abs() > 1e-6 || b.dy.abs() > 1e-6)) {
+          canvas.drawLine(transform(a), transform(b), linePaint);
         }
       }
     }
 
-    // Draw hand dots (brighter than pose)
-    for (final point in points) {
-      if (point.dx == 0 && point.dy == 0) continue; // skip invisible
-      canvas.drawCircle(point, 6, glowPaint);
-      canvas.drawCircle(point, 3.5, dotPaint);
-      canvas.drawCircle(point, 1.5, highlightPaint);
+    // Draw dots
+    for (final p in points) {
+      if (p.dx.abs() < 1e-6 && p.dy.abs() < 1e-6) continue;
+      final tp = transform(p);
+      canvas.drawCircle(tp, 5, glowPaint);
+      canvas.drawCircle(tp, 3, dotPaint);
+      canvas.drawCircle(tp, 1.2, highlightPaint);
+    }
+
+    // Draw hand label near wrist (landmark 0)
+    final wrist = points[0];
+    if (wrist.dx.abs() > 1e-6 || wrist.dy.abs() > 1e-6) {
+      final tp = transform(wrist);
+      final textPainter = TextPainter(
+        text: TextSpan(
+          text: label,
+          style: TextStyle(
+            color: color.withOpacity(0.6),
+            fontSize: 9,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+        textDirection: TextDirection.ltr,
+      )..layout();
+      textPainter.paint(canvas, tp + const Offset(-12, 6));
     }
   }
 
   @override
-  bool shouldRepaint(SkeletonOverlayPainter old) =>
-      old.landmarks != landmarks ||
-      old.isActive != isActive ||
-      old.cropFracY != cropFracY ||
-      old.cropFracX != cropFracX;
+  bool shouldRepaint(ModelInputPainter old) =>
+      old.features != features || old.isActive != isActive;
 }

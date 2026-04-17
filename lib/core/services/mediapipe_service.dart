@@ -77,6 +77,7 @@ class MediaPipeService {
 
   // Cache last extracted keypoints for overlay
   List<double> _lastKeypoints = List.filled(258, 0.0);
+  List<double> get lastKeypoints => List.from(_lastKeypoints);
 
   void startCapture() {
     _isActive = true;
@@ -141,16 +142,28 @@ class MediaPipeService {
           final poses = await _poseDetector!.processImage(inputImage);
           if (poses.isNotEmpty) {
             final pose = poses.first;
-            // Fill 33 pose landmarks
+
+            // ML Kit on Android returns landmark coordinates in the DISPLAY
+            // (rotated) space, but frame.width/height are SENSOR (landscape)
+            // dimensions.  For portrait (sensorOrientation 90/270) we must
+            // swap the normalization denominators so that x is 0-1 relative
+            // to portrait-width and y is 0-1 relative to portrait-height.
+            final bool isPortrait =
+                sensorOrientation == 90 || sensorOrientation == 270;
+            final double normW =
+                isPortrait ? frame.height.toDouble() : frame.width.toDouble();
+            final double normH =
+                isPortrait ? frame.width.toDouble() : frame.height.toDouble();
+
+            // Fill 33 pose landmarks (already in portrait/display space)
             for (final type in PoseLandmarkType.values) {
               final landmark = pose.landmarks[type];
               if (landmark != null) {
                 final idx = type.index * 4;
                 if (idx + 3 < 132) {
-                  // Normalize to 0-1 range using frame dimensions
-                  keypoints[idx] = (landmark.x / frame.width).clamp(0.0, 1.0);
-                  keypoints[idx + 1] = (landmark.y / frame.height).clamp(0.0, 1.0);
-                  keypoints[idx + 2] = landmark.z / 1000.0; // z is in mm, normalize
+                  keypoints[idx] = (landmark.x / normW).clamp(0.0, 1.0);
+                  keypoints[idx + 1] = (landmark.y / normH).clamp(0.0, 1.0);
+                  keypoints[idx + 2] = landmark.z / 1000.0;
                   keypoints[idx + 3] = landmark.likelihood;
                 }
               }
@@ -167,35 +180,65 @@ class MediaPipeService {
       try {
         final hands = _handLandmarker!.detect(frame, sensorOrientation);
         if (hands.isNotEmpty) {
-          for (int handIdx = 0; handIdx < hands.length && handIdx < 2; handIdx++) {
-            final hand = hands[handIdx];
-            // HandLandmarkerPlugin tidak expose handedness label.
-            // Gunakan wrist x-position sebagai proxy — matches MediaPipe training behavior:
-            //   wrist.x < 0.5 → kiri frame → "Left" di MediaPipe → slot lh (132-194)
-            //   wrist.x >= 0.5 → kanan frame → "Right" di MediaPipe → slot rh (195-257)
-            // Ini cocok dengan training code: label=="Left" → lh, else → rh.
-            final wristX = hand.landmarks.isNotEmpty ? hand.landmarks[0].x : 0.5;
-            final int baseIdx = wristX < 0.5 ? 132 : 195;
+          final assignments = _assignHandsToSlots(hands);
 
-            final landmarks = hand.landmarks;
+          for (final entry in assignments.entries) {
+            final baseIdx = entry.key;
+            final landmarks = entry.value.landmarks;
             for (int i = 0; i < landmarks.length && i < 21; i++) {
               final lm = landmarks[i];
               final idx = baseIdx + i * 3;
               if (idx + 2 < 258) {
-                keypoints[idx] = lm.x;     // already normalized 0-1
-                keypoints[idx + 1] = lm.y; // already normalized 0-1
-                keypoints[idx + 2] = lm.z; // depth
+                keypoints[idx] = lm.x;
+                keypoints[idx + 1] = lm.y;
+                keypoints[idx + 2] = lm.z;
               }
             }
           }
         }
-      } catch (e) {
+      } catch (e, st) {
         debugPrint('[MediaPipe] Hand detection error: $e');
+        debugPrint('[MediaPipe] Hand stack: $st');
       }
     }
 
     _lastKeypoints = keypoints;
     return keypoints;
+  }
+
+  /// Assign detected hands to keypoint slots.
+  ///
+  /// Strategy:
+  /// - 1 hand → duplicate into BOTH slots (132 + 195).
+  /// - 2 hands → sort by portrait_x (= lm.y in sensor coords).
+  ///   Front camera is mirrored, so smaller portrait_x (left display) =
+  ///   user's RIGHT hand (slot 195), larger = LEFT hand (slot 132).
+  Map<int, Hand> _assignHandsToSlots(List<Hand> hands) {
+    if (hands.isEmpty) return const {};
+
+    final limited = hands.take(2).toList();
+
+    if (limited.length == 1) {
+      // Single hand → put in BOTH slots
+      return {132: limited[0], 195: limited[0]};
+    }
+
+    // 2 hands → sort by portrait_x direction.
+    // hand_landmarker returns sensor-space coords: lm.y = portrait horizontal.
+    final sorted = [...limited]
+      ..sort((a, b) => _centerPortraitX(a).compareTo(_centerPortraitX(b)));
+    return {
+      195: sorted[0], // smaller portrait_x = left display = user's right hand
+      132: sorted[1], // larger portrait_x = right display = user's left hand
+    };
+  }
+
+  /// Center x in portrait display space.
+  /// hand_landmarker sensor coords: lm.y ≈ portrait_x (horizontal).
+  double _centerPortraitX(Hand hand) {
+    if (hand.landmarks.isEmpty) return 0.5;
+    final xs = hand.landmarks.map((lm) => lm.y).toList();
+    return xs.reduce((a, b) => a + b) / xs.length;
   }
 
   /// Synchronous version — returns last cached keypoints.
@@ -537,9 +580,9 @@ class MediaPipeService {
   }
 
   /// Get hand landmark positions for skeleton overlay (normalized 0-1).
-  /// Hand landmarks dari hand_landmarker disimpan di sensor space.
-  /// Untuk portrait display (sensorOrientation=90): swap x↔y sama seperti pose.
-  /// LSTM tetap pakai keypoints asli (tidak berubah) — ini hanya untuk visual overlay.
+  /// Hand landmarks dari hand_landmarker sudah berada di display space.
+  /// Jadi tidak perlu di-rotate lagi seperti pose ML Kit.
+  /// LSTM tetap pakai keypoints asli (tidak berubah) — ini hanya untuk visual panel.
   List<Offset> getHandLandmarkPositions(
     List<double> keypoints,
     Size canvasSize, {
@@ -548,16 +591,14 @@ class MediaPipeService {
   }) {
     final start = rightHand ? 195 : 132;
     final positions = <Offset>[];
-    final needSwap = sensorOrientation == 90 || sensorOrientation == 270;
     for (int i = 0; i < 21; i++) {
       final base = start + i * 3;
       if (base + 1 < keypoints.length) {
         final kx = keypoints[base];
         final ky = keypoints[base + 1];
         if (kx != 0.0 || ky != 0.0) {
-          // 90° CW rotation: portrait_x = ky, portrait_y = 1 - kx
-          final ox = needSwap ? ky * canvasSize.width  : kx * canvasSize.width;
-          final oy = needSwap ? (1.0 - kx) * canvasSize.height : ky * canvasSize.height;
+          final ox = kx * canvasSize.width;
+          final oy = ky * canvasSize.height;
           positions.add(Offset(ox, oy));
         }
       }
@@ -575,3 +616,4 @@ class MediaPipeService {
     _isActive = false;
   }
 }
+

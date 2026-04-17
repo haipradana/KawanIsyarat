@@ -1,0 +1,29 @@
+{
+  "label_to_index": {
+    "maaf": 0,
+    "saya": 1,
+    "terima_kasih": 2,
+    "tuli": 3,
+    "dengar": 4
+  },
+  "index_to_label": {
+    "0": "maaf",
+    "1": "saya",
+    "2": "terima_kasih",
+    "3": "tuli",
+    "4": "dengar"
+  },
+  "num_classes": 5,
+  "labels": [
+    "maaf",
+    "saya",
+    "terima_kasih",
+    "tuli",
+    "dengar"
+  ],
+  "feature_dim": 94,
+  "sequence_len": 30,
+  "dataset": "WL-BISINDO",
+  "normalization": "nose-centered + per-sequence std",
+  "temporal_total": 282
+}

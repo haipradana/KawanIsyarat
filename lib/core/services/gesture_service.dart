@@ -1,195 +1,526 @@
 import 'dart:async';
 import 'dart:math';
-import 'package:flutter/foundation.dart';
-import 'package:tflite_flutter/tflite_flutter.dart';
-import 'package:flutter/services.dart';
 import 'dart:convert';
+import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
+import 'package:tflite_flutter/tflite_flutter.dart';
 import 'mediapipe_service.dart';
 
-/// Two-stage gesture recognition service:
-/// Stage 1 — MediaPipe: extracts 258 raw keypoints, then normalizes to 108
-///            Siformer features per frame via MediaPipeService.normalizeSiformer()
-/// Stage 2 — LSTM (bisindo_gesture_siformer.tflite): receives 30-frame buffer
-///            of 108-float features → outputs word prediction
+/// BISINDO gesture recognition service — WL-BISINDO v3.
 ///
-/// Also maintains backward compatibility (glossStream, startGestureCapture)
-/// for existing providers.
+/// Pipeline:
+///   Camera → MediaPipe (pose + hands) → 98-float nose-centered features
+///   → Per-sequence std-normalization → Temporal derivatives (98 → 294)
+///   → TFLite Conv1D+ECA+Transformer model → 28-class prediction
+///
+/// Feature vector layout (98 floats per frame):
+///   [0:42]   = Right hand 21×(x,y) nose-centered
+///   [42:84]  = Left hand  21×(x,y) nose-centered
+///   [84:86]  = Nose position (always 0,0 after centering)
+///   [86:88]  = Left shoulder nose-centered
+///   [88:90]  = Right shoulder nose-centered
+///   [90:92]  = Left ear nose-centered
+///   [92:94]  = Right ear nose-centered
+///   [94:96]  = Left elbow nose-centered
+///   [96:98]  = Right elbow nose-centered
+///
+/// Normalization:
+///   1. Nose-centered: all coords -= nose position
+///   2. Per-sequence std normalization: (x - mean) / std
+///   3. Temporal derivatives: position + velocity + acceleration = 282
 class GestureService {
   static final GestureService _instance = GestureService._internal();
   factory GestureService() => _instance;
   GestureService._internal();
 
-  Interpreter? _lstmInterpreter;
+  Interpreter? _interpreter;
   Map<int, String> _labelMap = {};
   bool _isModelLoaded = false;
 
   final _glossController = StreamController<List<String>>.broadcast();
   Timer? _timer;
-  Timer? _continuousTimer;
   final List<String> _currentGloss = [];
   bool _isCapturing = false;
 
-  // Sliding window buffer — 30 frames × 108 Siformer features
-  final List<List<double>> _frameBuffer = [];
+  // ── Buffer config matching training ──────────────────────────────────────
+  // Raw 98-dim nose-centered features (NOT yet std-normalized or derivatives)
+  final List<List<double>> _rawFrameBuffer = [];
   static const int _sequenceLength = 30;
-  static const int _featureDim = 108;
-  static const double _confidenceThreshold = 0.65;
+  static const int _rawFeatureDim = 98;       // matches training FEATURE_DIM
+  // _derivFeatureDim = 294 (98 × 3: pos+vel+acc) — computed in _addTemporalDerivatives
+  static const double _confidenceThreshold = 0.30;
 
-  // Buffer auto-reset: jika tangan hilang N frame berturut-turut → clear buffer.
-  // Ini memastikan gesture berikutnya dimulai dari buffer bersih (tidak terkontaminasi zeros).
-  // Training pakai video 1-2s bersih → inference juga harus pakai window bersih.
-  int _consecutiveEmptyFrames = 0;
-  static const int _emptyFramesBeforeReset = 10; // ~0.7-1s di async ~10-15fps
+  // Frame decimation: training used uniform-30 from ~2s gesture (≈15fps effective).
+  // Camera runs at ~30fps → keep every 2nd frame so buffer covers ~2s = matches training.
+  int _frameCounter = 0;
+  static const int _frameSkipRate = 2; // add 1 frame every 2 camera frames
 
-  // Continuous prediction state
-  void Function(GestureResult)? _onWordCommitted;
-  String? _lastPredictedWord;
-  int _sameWordCount = 0;
-  bool _justCommitted = false;
-  String? _lastCommittedWord; // Dedup: prevent same word from oscillating predictions
+  // ── Per-sign recording state (matches test_video.py: collect 30 → predict once) ──
+  bool _isRecordingSign = false;
+  void Function(GestureResult)? _onSignDetected;
+  void Function(int frameCount)? _onBufferProgress;
+  List<double>? _lastGoodHandFrame; // for forward/backward fill
 
   final _mediaPipe = MediaPipeService();
+  int _debugExtractCount = 0;
+  List<double> _lastRawFeaturesForDebug =
+      List<double>.filled(_rawFeatureDim, double.nan);
 
   Stream<List<String>> get glossStream => _glossController.stream;
   bool get isCapturing => _isCapturing;
+  bool get isRecordingSign => _isRecordingSign;
   bool get isModelLoaded => _isModelLoaded;
-  int get bufferLength => _frameBuffer.length;
+  int get bufferLength => _rawFrameBuffer.length;
+  List<double> get lastRawFeaturesForDebug => List<double>.from(_lastRawFeaturesForDebug);
 
-  /// Load the LSTM model and label map from assets.
+  // ════════════════════════════════════════════════════════════════════════
+  // INITIALIZATION
+  // ════════════════════════════════════════════════════════════════════════
+
   Future<void> initialize() async {
     if (_isModelLoaded) return;
 
     try {
-      // Load LSTM model
-      _lstmInterpreter = await Interpreter.fromAsset(
-        'assets/models/bisindo_gesture_siformer.tflite',
+      // Load TFLite model
+      _interpreter = await Interpreter.fromAsset(
+        'assets/models/bisindo_wl_model.tflite',
         options: InterpreterOptions()..threads = 4,
       );
-      debugPrint('[GestureService] LSTM model loaded OK');
-      debugPrint('[GestureService] Input tensors: ${_lstmInterpreter!.getInputTensors()}');
-      debugPrint('[GestureService] Output tensors: ${_lstmInterpreter!.getOutputTensors()}');
+      debugPrint('[GestureService] Model loaded: bisindo_wl_model.tflite');
+      debugPrint('[GestureService] Input: ${_interpreter!.getInputTensors()}');
+      debugPrint('[GestureService] Output: ${_interpreter!.getOutputTensors()}');
 
       // Load label map
       final jsonStr = await rootBundle.loadString(
-        'assets/models/bisindo_labels.json',
+        'assets/models/bisindo_wl_labels.json',
       );
       final Map<String, dynamic> raw = json.decode(jsonStr);
-      _labelMap = raw.map((k, v) => MapEntry(int.parse(k), v as String));
-      debugPrint('[GestureService] Labels loaded: ${_labelMap.length} classes');
+      final Map<String, dynamic> i2l = raw['index_to_label'];
+      _labelMap = i2l.map((k, v) => MapEntry(int.parse(k), v as String));
+      debugPrint('[GestureService] Labels: ${_labelMap.length} classes');
 
       _isModelLoaded = true;
     } catch (e, st) {
-      debugPrint('[GestureService] LSTM load FAILED: $e');
+      debugPrint('[GestureService] Load FAILED: $e');
       debugPrint('[GestureService] Stack: $st');
       _isModelLoaded = false;
     }
   }
 
-  /// Add one frame of normalized Siformer keypoints to the sliding buffer.
-  /// Call this from camera stream while capturing.
-  ///
-  /// keypoints: flat array of 108 Siformer-normalized floats
-  ///   [0..23]   = body (12 × 2: nx, ny)
-  ///   [24..65]  = left hand (21 × 2: nx, ny)
-  ///   [66..107] = right hand (21 × 2: nx, ny)
-  void addFrame(List<double> keypoints) {
-    if (keypoints.length != _featureDim) return;
+  // ════════════════════════════════════════════════════════════════════════
+  // FEATURE EXTRACTION — 258 raw keypoints → 98 nose-centered features
+  // ════════════════════════════════════════════════════════════════════════
 
-    // Deteksi apakah frame ini punya data tangan (index 24-107).
-    // Jika tidak → hitung consecutive empty frames.
-    // Setelah N frame kosong berturut-turut → clear buffer untuk gesture berikutnya.
-    bool hasHands = false;
-    for (int i = 24; i < _featureDim; i++) {
-      if (keypoints[i].abs() > 1e-6) { hasHands = true; break; }
+  /// Convert 258 raw MediaPipe keypoints → 98-float nose-centered feature vector.
+  ///
+  /// This matches the training pipeline in kaggle_bisindo_wl.py:
+  ///   - Nose-centered: all coords -= nose position
+  ///   - NaN for undetected landmarks → handled during std-normalization
+  ///   - Hand detection via hand_landmarker (already display-space)
+  ///   - Pose via ML Kit (needs 90° rotation for portrait)
+  List<double> _extractBisindoFeatures(
+    List<double> rawKeypoints,
+    int sensorOrientation,
+  ) {
+    final features = List<double>.filled(_rawFeatureDim, double.nan);
+
+    // ── Nose position (center point) ────────────────────────────────────────
+    // ML Kit pose landmarks are already in portrait/display space after the
+    // normalization fix in mediapipe_service.dart. No rotation needed here.
+    double noseX = rawKeypoints[0 * 4];       // portrait x (0-1)
+    double noseY = rawKeypoints[0 * 4 + 1];   // portrait y (0-1)
+
+    // Training extractor only fills pose anchors when pose exists.
+    final bool hasPose = noseX != 0.0 || noseY != 0.0;
+    if (!hasPose) {
+      noseX = 0.5;
+      noseY = 0.5;
     }
 
-    if (!hasHands) {
-      _consecutiveEmptyFrames++;
-      if (_consecutiveEmptyFrames >= _emptyFramesBeforeReset && _frameBuffer.isNotEmpty) {
-        _frameBuffer.clear();
-        debugPrint('[GestureService] buffer reset — tangan hilang $_consecutiveEmptyFrames frame');
+    // ── Pose anchors [84:98] — 7 landmarks nose-centered ───────────────────
+    // Indices: nose(0), left_shoulder(11), right_shoulder(12), left_ear(7), right_ear(8)
+    if (hasPose) {
+      const poseIndices = [0, 11, 12, 7, 8, 13, 14]; // nose, L_shoulder, R_shoulder, L_ear, R_ear, L_elbow, R_elbow
+      for (int i = 0; i < poseIndices.length; i++) {
+        final idx = poseIndices[i];
+        // Coordinates already in portrait space — no rotation needed
+        final px = rawKeypoints[idx * 4];
+        final py = rawKeypoints[idx * 4 + 1];
+
+        if (idx != 0 && px == 0.0 && py == 0.0) {
+          continue;
+        }
+
+        features[84 + i * 2] = px - noseX;
+        features[84 + i * 2 + 1] = py - noseY;
       }
-    } else {
-      _consecutiveEmptyFrames = 0;
     }
 
-    _frameBuffer.add(List<double>.from(keypoints));
+    // ── Hand landmarks nose-centered ────────────────────────────────────────
+    // Raw keypoints layout:
+    //   [132..194] = left hand  21 × 3 (x, y, z) — already in display space
+    //   [195..257] = right hand 21 × 3 (x, y, z) — already in display space
 
-    // Keep only last 30 frames (sliding window)
-    if (_frameBuffer.length > _sequenceLength) {
-      _frameBuffer.removeAt(0);
-    }
-  }
-
-  /// Add a frame from a raw camera image via MediaPipe extraction.
-  void addFrameFromCamera(dynamic cameraImage) {
-    final keypoints = _mediaPipe.extractKeypoints(cameraImage);
-    addFrame(keypoints);
-  }
-
-  /// Add a frame from camera image with async MediaPipe extraction.
-  ///
-  /// Extracts raw 258 keypoints, normalizes them to 108 Siformer features
-  /// for the LSTM buffer, and returns the raw 258 keypoints for overlay use.
-  Future<List<double>> addFrameFromCameraAsync(dynamic cameraImage, int sensorOrientation) async {
-    final rawKeypoints = await _mediaPipe.extractKeypointsAsync(cameraImage, sensorOrientation);
-    final normalizedKeypoints = _mediaPipe.normalizeSiformer(
-      rawKeypoints,
-      sensorOrientation: sensorOrientation,
+    // Right hand → features[0:42]
+    _extractHandNoseCentered(
+      rawKeypoints, 195, features, 0, noseX, noseY,
     );
-    addFrame(normalizedKeypoints);
+    // Left hand → features[42:84]
+    _extractHandNoseCentered(
+      rawKeypoints, 132, features, 42, noseX, noseY,
+    );
+
+    // ── DEBUG: log nose + wrist positions (every 30th call) ─────────────────
+    _debugExtractCount++;
+    if (_debugExtractCount % 30 == 1) {
+      // Right wrist from hand_landmarker (sensor space: lmX=sensor_x, lmY=sensor_y)
+      final lmX = rawKeypoints[195];
+      final lmY = rawKeypoints[196];
+      // Right wrist nose-centered in portrait space (what model sees)
+      // features[0] = lmY - noseX (portrait_x centered)
+      // features[1] = lmX - noseY (portrait_y centered)
+      final rwCX = features[0];
+      final rwCY = features[1];
+      debugPrint(
+        '[GestureService] DEBUG coords: '
+        'nose=(${noseX.toStringAsFixed(3)}, ${noseY.toStringAsFixed(3)}) '
+        'R_wrist_sensor=(${lmX.toStringAsFixed(3)}, ${lmY.toStringAsFixed(3)}) '
+        'R_wrist_portrait_centered=(${rwCX.toStringAsFixed(3)}, ${rwCY.toStringAsFixed(3)}) '
+        'hasPose=$hasPose',
+      );
+    }
+
+    return features;
+  }
+
+  /// Extract one hand's 21 landmarks, nose-centered, into features array.
+  ///
+  /// hand_landmarker returns coordinates in sensor/landscape space:
+  ///   lm.x = sensor horizontal (= portrait VERTICAL direction)
+  ///   lm.y = sensor vertical   (= portrait HORIZONTAL direction)
+  ///
+  /// Training (Python) used portrait video space where x=horizontal, y=vertical.
+  /// So we swap: feature_x = lm.y, feature_y = lm.x
+  ///
+  /// The nose (ML Kit) is already in portrait space, normalized by:
+  ///   noseX = portrait_x_px / portrait_width_px  (frame.height for sensor 90°)
+  ///   noseY = portrait_y_px / portrait_height_px (frame.width  for sensor 90°)
+  /// lm.y is also normalized to portrait_width, lm.x to portrait_height → same scale ✓
+  void _extractHandNoseCentered(
+    List<double> rawKeypoints,
+    int srcStart,       // 132 for left, 195 for right
+    List<double> features,
+    int dstStart,       // 0 for right hand, 42 for left hand
+    double noseX,
+    double noseY,
+  ) {
+    for (int i = 0; i < 21; i++) {
+      final base = srcStart + i * 3;
+      if (base + 1 >= rawKeypoints.length) break;
+
+      final lmX = rawKeypoints[base];
+      final lmY = rawKeypoints[base + 1];
+
+      if (lmX != 0.0 || lmY != 0.0) {
+        // sensor space (sensorOrientation=90) → portrait display:
+        //   portrait_x = lm.y  (sensor_y → portrait horizontal)
+        //   portrait_y = 1 - lm.x  (sensor_x inverted → portrait vertical, 0=top)
+        features[dstStart + i * 2]     = lmY - noseX;
+        features[dstStart + i * 2 + 1] = (1.0 - lmX) - noseY;
+      }
+      // If not detected, stays NaN and is ignored during std-normalization.
+    }
+  }
+
+  // ════════════════════════════════════════════════════════════════════════
+  // NORMALIZATION & DERIVATIVES — matching training pipeline exactly
+  // ════════════════════════════════════════════════════════════════════════
+
+  /// Per-sequence std normalization.
+  /// Matches training: x = (x - nanmean) / nanstd, then NaN -> 0.
+  List<List<double>> _stdNormalize(List<List<double>> sequence) {
+    double sum = 0.0;
+    double sumSq = 0.0;
+    int count = 0;
+
+    for (final frame in sequence) {
+      for (final val in frame) {
+        if (!val.isFinite) continue;
+        sum += val;
+        sumSq += val * val;
+        count++;
+      }
+    }
+
+    if (count == 0) {
+      return sequence.map((frame) => List<double>.filled(frame.length, 0.0)).toList();
+    }
+
+    final mean = sum / count;
+    final variance = (sumSq / count) - (mean * mean);
+    final std = variance > 1e-12 ? sqrt(variance) : 1.0;
+
+    return sequence.map((frame) {
+      return frame.map((val) {
+        if (!val.isFinite) return 0.0;
+        final normalized = (val - mean) / std;
+        return normalized.isFinite ? normalized : 0.0;
+      }).toList();
+    }).toList();
+  }
+
+  /// Compute temporal derivatives: position + velocity + acceleration.
+  /// (30, 98) → (30, 294)
+  /// Matches training: vel[t] = x[t] - x[t-1], acc[t] = x[t] - x[t-2]
+  List<List<double>> _addTemporalDerivatives(List<List<double>> sequence) {
+    final int T = sequence.length;
+    final int D = sequence[0].length;  // 98
+
+    final result = <List<double>>[];
+
+    for (int t = 0; t < T; t++) {
+      final pos = sequence[t];
+      final vel = List<double>.filled(D, 0.0);
+      final acc = List<double>.filled(D, 0.0);
+
+      if (t >= 1) {
+        for (int d = 0; d < D; d++) {
+          vel[d] = sequence[t][d] - sequence[t - 1][d];
+        }
+      }
+      if (t >= 2) {
+        for (int d = 0; d < D; d++) {
+          acc[d] = sequence[t][d] - sequence[t - 2][d];
+        }
+      }
+
+      // Concatenate: position + velocity + acceleration = 294
+      result.add([...pos, ...vel, ...acc]);
+    }
+
+    return result;
+  }
+
+  // ════════════════════════════════════════════════════════════════════════
+  // FRAME BUFFER MANAGEMENT
+  // ════════════════════════════════════════════════════════════════════════
+
+  /// Add one frame of raw features directly (for testing/external use).
+  void addFrame(List<double> noseCenteredFeatures) {
+    if (noseCenteredFeatures.length != _rawFeatureDim) return;
+    _addFrameToBuffer(noseCenteredFeatures);
+  }
+
+  /// Internal: add one frame to buffer.
+  /// Decimation is handled by addFrameFromCameraAsync (before MediaPipe).
+  ///
+  /// In per-sign recording mode: collects exactly [_sequenceLength] frames
+  /// then auto-predicts once (matching test_video.py / training pipeline).
+  void _addFrameToBuffer(List<double> noseCenteredFeatures) {
+    if (noseCenteredFeatures.length != _rawFeatureDim) return;
+
+    // Always update debug visualization (even outside recording)
+    _lastRawFeaturesForDebug = List<double>.from(noseCenteredFeatures);
+
+    if (!_isRecordingSign) return; // only collect during active sign recording
+
+    // Check if this frame has valid hand data
+    bool hasHandData = false;
+    for (int i = 0; i < 84; i++) {
+      if (noseCenteredFeatures[i].isFinite && noseCenteredFeatures[i].abs() > 1e-6) {
+        hasHandData = true;
+        break;
+      }
+    }
+
+    // Forward-fill: if hands not detected this frame, use last known positions.
+    // Prevents buffer from filling with NaN when hand detection briefly fails.
+    final frameToAdd = List<double>.from(noseCenteredFeatures);
+    if (!hasHandData && _lastGoodHandFrame != null) {
+      for (int i = 0; i < 84; i++) {
+        frameToAdd[i] = _lastGoodHandFrame![i];
+      }
+    } else if (hasHandData) {
+      _lastGoodHandFrame = List<double>.from(frameToAdd.sublist(0, 84));
+    }
+
+    _rawFrameBuffer.add(frameToAdd);
+    _onBufferProgress?.call(_rawFrameBuffer.length);
+
+    final len = _rawFrameBuffer.length;
+    if (len == 1 || len % 10 == 0 || len == _sequenceLength) {
+      debugPrint('[GestureService] frame $len/$_sequenceLength (hands=$hasHandData)');
+    }
+
+    // When exactly 30 frames collected → predict once (matches test_video.py)
+    if (len >= _sequenceLength) {
+      _isRecordingSign = false;
+      _onBufferProgress?.call(_sequenceLength);
+
+      final result = predict();
+      debugPrint('[GestureService] Sign predict: $result');
+      if (result != null) {
+        _onSignDetected?.call(result);
+      } else {
+        _onSignDetected?.call(GestureResult(word: '?', confidence: 0.0, labelIndex: -1));
+      }
+      clearBuffer();
+    }
+  }
+
+  /// Add a frame from camera image via MediaPipe extraction.
+  /// Returns raw 258 keypoints for overlay rendering.
+  ///
+  /// Frame decimation: only runs MediaPipe on every [_frameSkipRate]-th frame
+  /// to save CPU/GPU. Skipped frames return the last cached keypoints.
+  Future<List<double>> addFrameFromCameraAsync(
+    dynamic cameraImage,
+    int sensorOrientation,
+  ) async {
+    // Decimation: skip MediaPipe on odd frames (save ~50% CPU/GPU)
+    _frameCounter++;
+    if (_frameCounter % _frameSkipRate != 0) {
+      return _mediaPipe.lastKeypoints; // reuse last for overlay
+    }
+
+    final rawKeypoints = await _mediaPipe.extractKeypointsAsync(
+      cameraImage,
+      sensorOrientation,
+    );
+    final bisindoFeatures = _extractBisindoFeatures(
+      rawKeypoints,
+      sensorOrientation,
+    );
+    _addFrameToBuffer(bisindoFeatures);
     return rawKeypoints;
   }
 
-  /// Predict gesture from current buffer using LSTM.
-  /// Returns null if buffer not full, no hands detected, or confidence too low.
-  GestureResult? predict() {
-    if (_lstmInterpreter == null) return null;
+  // ════════════════════════════════════════════════════════════════════════
+  // FILL — forward + backward fill for missing hand frames
+  // ════════════════════════════════════════════════════════════════════════
 
-    // Guard: minimal frame dengan tangan terdeteksi.
-    // Siformer hand features: index 24-107 (left hand [24..65] + right hand [66..107]).
-    // Jika semua = 0 → tangan tidak terdeteksi di frame itu.
-    // Tanpa guard ini, 30 frame zeros → model prediksi kelas "default" dengan confidence tinggi.
-    // Minimal 12/30 frame (40%) harus punya tangan — pastikan gesture cukup konsisten.
-    // Buffer auto-reset di addFrame() sudah jamin buffer bersih saat gesture baru mulai,
-    // tapi guard ini tetap perlu untuk transisi awal (buffer belum penuh).
-    const minHandFrames = 12;
-    final framesWithHands = _frameBuffer.where((frame) {
-      for (int i = 24; i < _featureDim; i++) {
-        if (frame[i].abs() > 1e-6) return true;
+  /// Fill frames where hands were not detected using adjacent detected frames.
+  ///
+  /// Forward fill: propagates last known hand position forward.
+  /// Backward fill: fills leading NaN frames from first detected frame.
+  ///
+  /// Only fills hand slots (features[0:84]). Pose anchors (84:98) keep their
+  /// original values (pose is usually more stable than hand detection).
+  List<List<double>> _fillHandFrames(List<List<double>> buffer) {
+    bool hasHands(List<double> frame) {
+      for (int i = 0; i < 84; i++) {
+        if (frame[i].isFinite && frame[i].abs() > 1e-6) return true;
+      }
+      return false;
+    }
+
+    final filled = buffer.map((f) => List<double>.from(f)).toList();
+
+    // Forward fill
+    List<double>? lastGood;
+    for (int t = 0; t < filled.length; t++) {
+      if (hasHands(filled[t])) {
+        lastGood = filled[t].sublist(0, 84);
+      } else if (lastGood != null) {
+        for (int i = 0; i < 84; i++) {
+          filled[t][i] = lastGood[i];
+        }
+      }
+    }
+
+    // Backward fill (frames before first detection)
+    List<double>? firstGood;
+    for (int t = 0; t < filled.length; t++) {
+      if (hasHands(filled[t])) {
+        firstGood = filled[t].sublist(0, 84);
+        break;
+      }
+    }
+    if (firstGood != null) {
+      for (int t = 0; t < filled.length; t++) {
+        if (!hasHands(filled[t])) {
+          for (int i = 0; i < 84; i++) {
+            filled[t][i] = firstGood[i];
+          }
+        } else {
+          break; // stop at first real detection
+        }
+      }
+    }
+
+    return filled;
+  }
+
+  // ════════════════════════════════════════════════════════════════════════
+  // PREDICTION
+  // ════════════════════════════════════════════════════════════════════════
+
+  /// Run inference on current buffer.
+  ///
+  /// Pipeline: raw buffer → fill missing hand frames → std-normalize → temporal derivatives → TFLite.
+  GestureResult? predict() {
+    if (_interpreter == null) return null;
+
+    // Need at least a few genuine hand detections (before forward/backward fill)
+    const minHandFrames = 3;
+    final framesWithHands = _rawFrameBuffer.where((frame) {
+      for (int i = 0; i < 84; i++) {
+        final val = frame[i];
+        if (val.isFinite && val.abs() > 1e-6) return true;
       }
       return false;
     }).length;
+
     if (framesWithHands < minHandFrames) {
-      debugPrint('[GestureService] skip: $framesWithHands/$minHandFrames frames with hands');
+      debugPrint(
+        '[GestureService] skip: $framesWithHands/$minHandFrames genuine hand frames',
+      );
       return null;
     }
 
-    // Pad with zeros if buffer not full
-    final paddedBuffer = List<List<double>>.from(_frameBuffer);
+    // Pad with NaN for sequences shorter than 30 (shouldn't happen in per-sign mode)
+    final paddedBuffer = List<List<double>>.from(_rawFrameBuffer);
     while (paddedBuffer.length < _sequenceLength) {
-      paddedBuffer.insert(0, List.filled(_featureDim, 0.0));
+      paddedBuffer.insert(0, List<double>.filled(_rawFeatureDim, double.nan));
     }
 
-    // Build input tensor: shape (1, 30, 108)
-    final input = [paddedBuffer];
+    // Fill missing hand frames (forward + backward fill) to avoid model seeing zeros
+    // where hands should be. Matches training assumption that hands are present.
+    final filledBuffer = _fillHandFrames(paddedBuffer);
 
-    // Output tensor: shape (1, numClasses)
-    final numClasses = _labelMap.isNotEmpty ? _labelMap.length : 32;
+    // 1. Std-normalize the sequence (matches training normalize_sequence_std)
+    final normalized = _stdNormalize(filledBuffer);
+
+    // 2. Add temporal derivatives: (30, 98) → (30, 294)
+    final withDerivatives = _addTemporalDerivatives(normalized);
+
+    // 3. Build input tensor: shape (1, 30, 294)
+    final input = [withDerivatives];
+
+    // 4. Run inference
+    final numClasses = _labelMap.isNotEmpty ? _labelMap.length : 28;
     final output = List.filled(numClasses, 0.0).reshape([1, numClasses]);
 
-    _lstmInterpreter!.run(input, output);
+    try {
+      _interpreter!.run(input, output);
+    } catch (e) {
+      debugPrint('[GestureService] Inference error: $e');
+      return null;
+    }
 
     final probs = (output[0] as List).cast<double>();
     final maxIdx = probs.indexOf(probs.reduce(max));
     final confidence = probs[maxIdx];
 
-    // Debug: top 3 predictions
+    // Debug: top 3
     final indexed = probs.asMap().entries.toList()
       ..sort((a, b) => b.value.compareTo(a.value));
-    final top3 = indexed.take(3).map((e) =>
-      '${_labelMap[e.key] ?? "?"}(${(e.value * 100).toStringAsFixed(1)}%)');
-    debugPrint('[GestureService] predict: top3=[${ top3.join(', ')}] buf=${_frameBuffer.length}');
+    final top3 = indexed.take(3).map(
+      (e) => '${_labelMap[e.key] ?? "?"}(${(e.value * 100).toStringAsFixed(1)}%)',
+    );
+    debugPrint(
+      '[GestureService] predict: top3=[${top3.join(', ')}] buf=${_rawFrameBuffer.length}',
+    );
 
     if (confidence < _confidenceThreshold) return null;
 
@@ -200,129 +531,88 @@ class GestureService {
     );
   }
 
-  /// Clear keypoint buffer — call when starting new gesture session.
+  /// Clear keypoint buffer.
   void clearBuffer() {
-    _frameBuffer.clear();
-    _consecutiveEmptyFrames = 0;
+    _rawFrameBuffer.clear();
+    _frameCounter = 0;
+    _lastGoodHandFrame = null;
   }
 
-  // ======================================
-  // Backward-compatible API for existing providers
-  // ======================================
+  // ════════════════════════════════════════════════════════════════════════
+  // CAPTURE — per-sign mode matching test_video.py / training pipeline
+  // ════════════════════════════════════════════════════════════════════════
 
-  /// Simulated sequence data for when LSTM model is not loaded.
-  static const List<List<String>> _mockSequences = [
-    ['NAMA', 'SAYA', 'APA'],
-    ['TERIMA', 'KASIH'],
-    ['TOLONG', 'BANTU'],
-    ['SAYA', 'SENANG'],
-    ['HALO', 'APA', 'KABAR'],
-  ];
-
-  /// Start gesture capture — maintains backward compat.
-  /// If LSTM is loaded: starts MediaPipe + continuous prediction timer.
-  /// If not loaded: falls back to mock gloss stream.
-  ///
-  /// [onWordCommitted] called each time a stable word is detected (2× same prediction, >65% confidence).
+  /// Start a gesture session (enables MediaPipe, camera stream).
+  /// Call once when entering the screen.
   void startGestureCapture({void Function(GestureResult)? onWordCommitted}) {
     if (_isCapturing) return;
     _isCapturing = true;
     _currentGloss.clear();
     clearBuffer();
-    _onWordCommitted = onWordCommitted;
-    _lastPredictedWord = null;
-    _sameWordCount = 0;
-    _justCommitted = false;
-    _lastCommittedWord = null;
-
-    if (_isModelLoaded) {
-      _mediaPipe.startCapture();
-      // Continuous prediction: check every 900ms for stable gestures
-      _continuousTimer = Timer.periodic(const Duration(milliseconds: 900), (_) {
-        if (!_isCapturing) return;
-        final result = predict();
-        if (result != null) {
-          if (result.word == _lastPredictedWord) {
-            _sameWordCount++;
-            // Commit: same word 2× berturut-turut, belum committed, bukan duplikat terakhir
-            if (_sameWordCount >= 2 && !_justCommitted && result.word != _lastCommittedWord) {
-              _justCommitted = true;
-              _lastCommittedWord = result.word;
-              _sameWordCount = 0;
-              debugPrint('[GestureService] Committed: ${result.word} (${(result.confidence * 100).toStringAsFixed(1)}%)');
-              _onWordCommitted?.call(result);
-            }
-          } else {
-            _justCommitted = false;
-            // Reset lastCommittedWord ketika prediksi berubah ke kata baru
-            // (allow re-commit kata sama setelah ada kata lain di-commit)
-            if (_lastCommittedWord != null && result.word != _lastCommittedWord) {
-              _lastCommittedWord = null;
-            }
-            _lastPredictedWord = result.word;
-            _sameWordCount = 1;
-          }
-        } else {
-          // Prediction below threshold — reset stability
-          _justCommitted = false;
-          _lastPredictedWord = null;
-          _sameWordCount = 0;
-        }
-      });
-      return;
-    }
-
-    // Fallback: mock stream
-    int idx = 0;
-    final random = Random();
-    final seq = _mockSequences[random.nextInt(_mockSequences.length)];
-
-    _timer = Timer.periodic(Duration(milliseconds: 1500), (timer) {
-      if (idx < seq.length) {
-        _currentGloss.add(seq[idx]);
-        _glossController.add(List.from(_currentGloss));
-        idx++;
-      } else {
-        _currentGloss.clear();
-        idx = 0;
-        final newSeq = _mockSequences[random.nextInt(_mockSequences.length)];
-        _currentGloss.add(newSeq[idx]);
-        _glossController.add(List.from(_currentGloss));
-        idx++;
-      }
-    });
+    _mediaPipe.startCapture();
   }
 
-  /// Stop gesture capture.
+  /// Stop the gesture session (disables MediaPipe).
   void stopGestureCapture() {
     _isCapturing = false;
+    _isRecordingSign = false;
     _mediaPipe.stopCapture();
     _timer?.cancel();
     _timer = null;
-    _continuousTimer?.cancel();
-    _continuousTimer = null;
-    _onWordCommitted = null;
+    _onSignDetected = null;
+    _onBufferProgress = null;
+  }
+
+  /// Start recording ONE sign.
+  ///
+  /// Collects exactly [_sequenceLength] frames then auto-predicts (same as
+  /// test_video.py). [onSignDetected] fires once with the result.
+  /// [onProgress] fires each frame with current count (0..30).
+  void startSignRecording({
+    required void Function(GestureResult result) onSignDetected,
+    void Function(int frameCount)? onProgress,
+  }) {
+    if (!_isModelLoaded || !_isCapturing) return;
+    clearBuffer();
+    _frameCounter = 0;
+    _onSignDetected = onSignDetected;
+    _onBufferProgress = onProgress;
+    _isRecordingSign = true;
+    debugPrint('[GestureService] startSignRecording');
+  }
+
+  /// Cancel current sign recording (e.g. user released button before 30 frames).
+  void cancelSignRecording() {
+    _isRecordingSign = false;
+    _onSignDetected = null;
+    _onBufferProgress = null;
+    clearBuffer();
+    debugPrint('[GestureService] cancelSignRecording');
   }
 
   List<String> getCurrentGloss() => List.from(_currentGloss);
 
   /// Returns hand landmark positions for overlay painter.
   List<Offset> getHandLandmarks(double width, double height) {
-    if (_frameBuffer.isNotEmpty) {
+    // Use MediaPipe's cached raw keypoints for overlay
+    final cachedKeypoints = _mediaPipe.lastKeypoints;
+    final hasData = cachedKeypoints.any((v) => v != 0.0);
+
+    if (hasData) {
       return _mediaPipe.getHandLandmarkPositions(
-        _frameBuffer.last,
+        cachedKeypoints,
         Size(width, height),
       );
     }
 
-    // Fallback: mock landmarks
+    // Fallback: procedural landmarks
     final random = Random(42);
     final centerX = width * 0.5;
     final centerY = height * 0.45;
     final spread = width * 0.15;
 
     return List.generate(21, (index) {
-      final angle = (index / 21) * 2 * 3.14159;
+      final angle = (index / 21) * 2 * pi;
       final radius = spread * (0.5 + random.nextDouble() * 0.5);
       return Offset(
         centerX + radius * cos(angle) + (random.nextDouble() - 0.5) * 20,
@@ -334,7 +624,7 @@ class GestureService {
   void dispose() {
     _timer?.cancel();
     _glossController.close();
-    _lstmInterpreter?.close();
+    _interpreter?.close();
     _mediaPipe.stopCapture();
     _isModelLoaded = false;
   }
