@@ -63,15 +63,27 @@ class LearningHubScreen extends ConsumerWidget {
                   ),
               SizedBox(height: AppSpacing.lg),
               _ModuleCard(
-                icon: Icons.abc_rounded,
-                title: 'Belajar Alfabet BISINDO',
-                description: 'Kuasai isyarat huruf A sampai Z',
+                icon: Icons.front_hand_rounded,
+                title: 'Belajar Alfabet SIBI',
+                description: 'Isyarat huruf A-Z dengan 1 tangan (Sistem Isyarat Bahasa Indonesia)',
                 progress: 0.0,
-                progressLabel: '0/26 huruf',
+                progressLabel: '0/24 huruf',
                 color: AppColors.accent,
-                onTap: () => context.push('/learn/alfabet'),
+                onTap: () => context.push('/learn/alfabet/sibi'),
               ).animate().fadeIn(duration: 500.ms, delay: 350.ms).slideY(
                     begin: 0.05, end: 0, duration: 500.ms, delay: 350.ms,
+                  ),
+              SizedBox(height: AppSpacing.lg),
+              _ModuleCard(
+                icon: Icons.sign_language_rounded,
+                title: 'Belajar Alfabet BISINDO',
+                description: 'Isyarat huruf A-Z dengan 2 tangan (lebih natural, digunakan komunitas Tuli)',
+                progress: 0.0,
+                progressLabel: '0/26 huruf',
+                color: const Color(0xFF7C3AED),
+                onTap: () => context.push('/learn/alfabet/bisindo'),
+              ).animate().fadeIn(duration: 500.ms, delay: 500.ms).slideY(
+                    begin: 0.05, end: 0, duration: 500.ms, delay: 500.ms,
                   ),
             ] else ...[
               // Tuli modules

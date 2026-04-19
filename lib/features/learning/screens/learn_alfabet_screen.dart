@@ -7,8 +7,13 @@ import '../../../core/services/sibi_alphabet_service.dart';
 import '../../../core/services/bisindo_alphabet_service.dart';
 import 'alphabet_practice_screen.dart';
 
+
 class LearnAlfabetScreen extends StatefulWidget {
-  const LearnAlfabetScreen({super.key});
+  /// Optional fixed mode. If provided, the mode toggle is hidden and
+  /// the screen starts directly in that mode.
+  final AlphabetMode? initialMode;
+
+  const LearnAlfabetScreen({super.key, this.initialMode});
 
   @override
   State<LearnAlfabetScreen> createState() => _LearnAlfabetScreenState();
@@ -16,7 +21,7 @@ class LearnAlfabetScreen extends StatefulWidget {
 
 class _LearnAlfabetScreenState extends State<LearnAlfabetScreen> {
   String? _selectedLetter;
-  AlphabetMode _mode = AlphabetMode.sibi;
+  late AlphabetMode _mode;
 
   List<String> get _letters => _mode == AlphabetMode.sibi
       ? SibiAlphabetService.supportedLetters
@@ -35,6 +40,14 @@ class _LearnAlfabetScreenState extends State<LearnAlfabetScreen> {
       _mode == AlphabetMode.sibi ? '1 tangan' : '2 tangan';
 
   @override
+  void initState() {
+    super.initState();
+    _mode = widget.initialMode ?? AlphabetMode.sibi;
+  }
+
+  bool get _fixedMode => widget.initialMode != null;
+
+  @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AppColors.background,
@@ -47,7 +60,9 @@ class _LearnAlfabetScreenState extends State<LearnAlfabetScreen> {
           onPressed: () => context.pop(),
         ),
         title: Text(
-          'Alfabet Isyarat',
+          _fixedMode
+              ? 'Alfabet $_modeName'
+              : 'Alfabet Isyarat',
           style: GoogleFonts.plusJakartaSans(
             fontSize: 16,
             fontWeight: FontWeight.w700,
@@ -61,12 +76,13 @@ class _LearnAlfabetScreenState extends State<LearnAlfabetScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // ── Mode toggle SIBI / BISINDO ───────────────────────────────
-            _buildModeToggle()
-                .animate()
-                .fadeIn(duration: 350.ms),
-
-            SizedBox(height: AppSpacing.lg),
+            // ── Mode toggle SIBI / BISINDO (only when not fixed) ──────────
+            if (!_fixedMode) ...[
+              _buildModeToggle()
+                  .animate()
+                  .fadeIn(duration: 350.ms),
+              SizedBox(height: AppSpacing.lg),
+            ],
 
             // ── Mode info card ──────────────────────────────────────────
             _buildModeInfoCard()
