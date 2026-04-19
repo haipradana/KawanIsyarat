@@ -110,6 +110,18 @@ class LearningHubScreen extends ConsumerWidget {
               ).animate().fadeIn(duration: 500.ms, delay: 350.ms).slideY(
                     begin: 0.05, end: 0, duration: 500.ms, delay: 350.ms,
                   ),
+              SizedBox(height: AppSpacing.lg),
+              _ModuleCard(
+                icon: Icons.menu_book_rounded,
+                title: 'Kamus Pintar AI',
+                description: 'Tanyakan arti kata atau istilah sulit — Gemma 4 menjelaskan dengan bahasa sederhana',
+                progress: 0.0,
+                progressLabel: 'Gemma 4 Vocabulary Helper',
+                color: const Color(0xFF7C3AED),
+                onTap: () => context.push('/learn/kamus'),
+              ).animate().fadeIn(duration: 500.ms, delay: 500.ms).slideY(
+                    begin: 0.05, end: 0, duration: 500.ms, delay: 500.ms,
+                  ),
             ],
             SizedBox(height: AppSpacing.xxxl),
           ],

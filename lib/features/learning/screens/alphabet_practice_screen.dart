@@ -1,23 +1,28 @@
 import 'dart:async';
 import 'dart:collection';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:go_router/go_router.dart';
 import 'package:camera/camera.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
 import '../../../app/constants.dart';
 import '../../../core/services/sibi_alphabet_service.dart';
 import '../../../core/services/bisindo_alphabet_service.dart';
+import '../../../core/services/gemma_service.dart';
 
-/// Alphabet practice screen — MediaPipe + Dense classifier.
+/// Alphabet practice screen — single-shot capture + Gemma 4 Vision Sign Coach.
 ///
-/// Mendukung dua sistem alfabet:
-/// - **SIBI** (1 tangan, 24 kelas A-Y skip J & Z) — sibi_alphabet_model_f32.tflite
-/// - **BISINDO** (2 tangan, 22 kelas A-V) — bisindo_alphabet_model_f32.tflite
+/// Flow:
+/// 1. `ready`     — user hadapkan tangan, live detection muncul kecil di pojok
+/// 2. `holding`   — deteksi stabil 2 detik → auto trigger capture
+/// 3. `capturing` — takePicture + CNN freeze
+/// 4. `coaching`  — kirim foto ke Gemma vision untuk evaluasi
+/// 5. `reviewed`  — tampilkan hasil CNN + tips Gemma, tombol "Coba Lagi"
 ///
-/// Pipeline: imageStream → hand_landmarker → Boháček normalization →
-///           Dense TFLite → letter
+/// User bisa tekan tombol capture manual kapanpun di fase `ready` / `holding`.
 enum AlphabetMode { sibi, bisindo }
 
 class AlphabetPracticeScreen extends StatefulWidget {
@@ -34,53 +39,55 @@ class AlphabetPracticeScreen extends StatefulWidget {
   State<AlphabetPracticeScreen> createState() => _AlphabetPracticeScreenState();
 }
 
-/// Lightweight result wrapper so screen logic doesn't care about source service.
 class _AbcDetection {
   final String letter;
   final double confidence;
   const _AbcDetection(this.letter, this.confidence);
 }
 
-enum _Phase { preparing, countdown, capturing, result }
+enum _Phase { preparing, ready, holding, capturing, coaching, reviewed }
 
 class _AlphabetPracticeScreenState extends State<AlphabetPracticeScreen>
     with SingleTickerProviderStateMixin {
   CameraController? _cameraController;
   final SibiAlphabetService _sibi = SibiAlphabetService();
   final BisindoAlphabetService _bisindo = BisindoAlphabetService();
+  final GemmaService _gemma = GemmaService();
 
   bool _isInitialized = false;
   String? _error;
   bool _disposed = false;
 
   _Phase _phase = _Phase.preparing;
-  _AbcDetection? _liveResult;   // deteksi realtime dari stream
-  _AbcDetection? _lastResult;   // difreeze saat capture
+  _AbcDetection? _liveResult;
+  _AbcDetection? _capturedDetection;
+  String? _capturedImagePath;
+  String? _coachText;
+  String? _coachError;
   final Queue<_AbcDetection> _recentPredictions = Queue<_AbcDetection>();
-  bool _isCorrect = false;
-  int _correctCount = 0;
-  int _totalCount = 0;
 
   int _sensorOrientation = 90;
   bool _isFrontCamera = true;
-  bool _isProcessingFrame = false;    // throttle stream
+  bool _isProcessingFrame = false;
   int _missedFrames = 0;
 
-  late AnimationController _countdownController;
-  Timer? _phaseTimer;
+  DateTime? _stableSince;
+  late AnimationController _holdController;
+  Timer? _holdCheckTimer;
 
-  static const _countdownDuration = Duration(milliseconds: 2500);
-  static const _resultDuration = Duration(milliseconds: 2000);
-  static const _maxPredictionWindow = 12;
-  static const _minStableVotes = 4;
+  /// Hitungan percobaan untuk huruf target saat ini.
+  /// Direset ke 0 saat screen dibuka, di-increment setiap `_triggerCapture`.
+  /// Dikirim ke Gemma supaya coach tahu kapan perlu menyemangati.
+  int _attemptCount = 0;
+
+  static const Duration _holdDuration = Duration(milliseconds: 2200);
+  static const int _maxPredictionWindow = 12;
+  static const int _minStableVotes = 5;
 
   @override
   void initState() {
     super.initState();
-    _countdownController = AnimationController(
-      vsync: this,
-      duration: _countdownDuration,
-    );
+    _holdController = AnimationController(vsync: this, duration: _holdDuration);
     _init();
   }
 
@@ -121,27 +128,28 @@ class _AlphabetPracticeScreenState extends State<AlphabetPracticeScreen>
         camera,
         ResolutionPreset.medium,
         enableAudio: false,
-        imageFormatGroup: ImageFormatGroup.yuv420, // YUV diperlukan hand_landmarker
+        imageFormatGroup: ImageFormatGroup.yuv420,
       );
 
       await _cameraController!.initialize();
 
-      // Load model sesuai mode
       if (widget.mode == AlphabetMode.sibi) {
         await _sibi.initialize();
       } else {
         await _bisindo.initialize();
       }
 
-      // Mulai stream untuk deteksi realtime
       await _cameraController!.startImageStream(_onCameraFrame);
+
+      // Timer untuk cek stable hold (tiap 150ms)
+      _holdCheckTimer = Timer.periodic(
+          const Duration(milliseconds: 150), (_) => _checkStableHold());
 
       if (mounted && !_disposed) {
         setState(() {
           _isInitialized = true;
-          _phase = _Phase.countdown;
+          _phase = _Phase.ready;
         });
-        _startCountdown();
       }
     } catch (e) {
       if (mounted) {
@@ -150,28 +158,22 @@ class _AlphabetPracticeScreenState extends State<AlphabetPracticeScreen>
     }
   }
 
-  // ─── Stream frame handler ──────────────────────────────────────────────────
+  // ─── Frame handler & stable-hold detection ────────────────────────────────
 
   void _onCameraFrame(CameraImage frame) {
-    // Skip jika sedang processing atau di fase result
-    if (_isProcessingFrame || _phase == _Phase.result || _disposed) return;
+    if (_isProcessingFrame || _disposed) return;
+    if (_phase != _Phase.ready && _phase != _Phase.holding) return;
     _isProcessingFrame = true;
 
     try {
       _AbcDetection? result;
       if (widget.mode == AlphabetMode.sibi) {
         final r = _sibi.detectFromCameraImage(
-          frame,
-          _sensorOrientation,
-          _isFrontCamera,
-        );
+            frame, _sensorOrientation, _isFrontCamera);
         if (r != null) result = _AbcDetection(r.letter, r.confidence);
       } else {
         final r = _bisindo.detectFromCameraImage(
-          frame,
-          _sensorOrientation,
-          _isFrontCamera,
-        );
+            frame, _sensorOrientation, _isFrontCamera);
         if (r != null) result = _AbcDetection(r.letter, r.confidence);
       }
       final smoothed = _pushPrediction(result);
@@ -183,80 +185,15 @@ class _AlphabetPracticeScreenState extends State<AlphabetPracticeScreen>
     }
   }
 
-  String get _modeLabel => widget.mode == AlphabetMode.sibi ? 'SIBI' : 'BISINDO';
-  String get _modeHint => widget.mode == AlphabetMode.sibi
-      ? '1 tangan'
-      : '2 tangan';
-
-  // ─── Phase management ──────────────────────────────────────────────────────
-
-  void _startCountdown() {
-    if (_disposed) return;
-    _recentPredictions.clear();
-    _missedFrames = 0;
-    _liveResult = null;
-    _countdownController.reset();
-    _countdownController.forward();
-
-    _phaseTimer?.cancel();
-    _phaseTimer = Timer(_countdownDuration, () {
-      if (!_disposed && mounted) _capture();
-    });
-  }
-
-  void _capture() {
-    if (_disposed || !mounted) return;
-
-    setState(() {
-      _phase = _Phase.capturing;
-    });
-
-    // Freeze deteksi saat ini — brief pause untuk UX
-    Future.delayed(const Duration(milliseconds: 200), () {
-      if (_disposed || !mounted) return;
-      _showResult(
-        _resolveStablePrediction(requireConsensus: true) ??
-            _resolveStablePrediction(requireConsensus: false),
-      );
-    });
-  }
-
-  void _showResult(_AbcDetection? result) {
-    if (_disposed || !mounted) return;
-
-    _totalCount++;
-    final correct = result != null && result.letter == widget.targetLetter;
-    if (correct) _correctCount++;
-
-    setState(() {
-      _phase = _Phase.result;
-      _lastResult = result;
-      _isCorrect = correct;
-    });
-
-    // Auto-retry setelah delay
-    _phaseTimer?.cancel();
-    _phaseTimer = Timer(_resultDuration, () {
-      if (!_disposed && mounted) {
-        setState(() {
-          _phase = _Phase.countdown;
-          _liveResult = null;
-        });
-        _startCountdown();
-      }
-    });
-  }
-
   _AbcDetection? _pushPrediction(_AbcDetection? result) {
     if (result == null) {
       _missedFrames++;
       if (_missedFrames >= 3) {
         _recentPredictions.clear();
-        return null;
+        _stableSince = null;
       }
       return _resolveStablePrediction(requireConsensus: false);
     }
-
     _missedFrames = 0;
     _recentPredictions.addLast(result);
     while (_recentPredictions.length > _maxPredictionWindow) {
@@ -267,56 +204,171 @@ class _AlphabetPracticeScreenState extends State<AlphabetPracticeScreen>
 
   _AbcDetection? _resolveStablePrediction({required bool requireConsensus}) {
     if (_recentPredictions.isEmpty) return null;
-
     final grouped = <String, List<double>>{};
-    for (final prediction in _recentPredictions) {
-      grouped.putIfAbsent(prediction.letter, () => <double>[]).add(prediction.confidence);
+    for (final p in _recentPredictions) {
+      grouped.putIfAbsent(p.letter, () => <double>[]).add(p.confidence);
     }
-
     String? bestLetter;
     List<double> bestScores = const [];
+    for (final e in grouped.entries) {
+      if (bestLetter == null ||
+          e.value.length > bestScores.length ||
+          (e.value.length == bestScores.length &&
+              e.value.reduce((a, b) => a + b) / e.value.length >
+                  bestScores.reduce((a, b) => a + b) / bestScores.length)) {
+        bestLetter = e.key;
+        bestScores = e.value;
+      }
+    }
+    if (bestLetter == null || bestScores.isEmpty) return null;
+    final avg = bestScores.reduce((a, b) => a + b) / bestScores.length;
+    final ratio = bestScores.length / _recentPredictions.length;
+    if (requireConsensus && (bestScores.length < _minStableVotes || ratio < 0.55)) {
+      return null;
+    }
+    return _AbcDetection(bestLetter, avg);
+  }
 
-    for (final entry in grouped.entries) {
-      if (bestLetter == null) {
-        bestLetter = entry.key;
-        bestScores = entry.value;
-        continue;
+  /// Check apakah deteksi sudah stabil (target letter konsisten > 2 detik).
+  void _checkStableHold() {
+    if (_disposed) return;
+    if (_phase != _Phase.ready && _phase != _Phase.holding) return;
+
+    final stable = _resolveStablePrediction(requireConsensus: true);
+    // Hanya counting bila stable letter == target
+    if (stable != null && stable.letter == widget.targetLetter) {
+      _stableSince ??= DateTime.now();
+      final held = DateTime.now().difference(_stableSince!);
+
+      if (_phase != _Phase.holding && mounted) {
+        _holdController.forward(from: 0.0);
+        setState(() => _phase = _Phase.holding);
       }
 
-      if (entry.value.length > bestScores.length) {
-        bestLetter = entry.key;
-        bestScores = entry.value;
-        continue;
+      if (held >= _holdDuration) {
+        _triggerCapture();
+      } else if (mounted) {
+        setState(() {}); // update progress
       }
-
-      if (entry.value.length == bestScores.length) {
-        final currentAvg = entry.value.reduce((a, b) => a + b) / entry.value.length;
-        final bestAvg = bestScores.reduce((a, b) => a + b) / bestScores.length;
-        if (currentAvg > bestAvg) {
-          bestLetter = entry.key;
-          bestScores = entry.value;
+    } else {
+      if (_stableSince != null) {
+        _stableSince = null;
+        _holdController.reset();
+        if (_phase == _Phase.holding && mounted) {
+          setState(() => _phase = _Phase.ready);
         }
       }
     }
+  }
 
-    if (bestLetter == null || bestScores.isEmpty) return null;
+  // ─── Capture & Gemma coaching ─────────────────────────────────────────────
 
-    final avgConfidence = bestScores.reduce((a, b) => a + b) / bestScores.length;
-    final voteRatio = bestScores.length / _recentPredictions.length;
-
-    if (requireConsensus && (bestScores.length < _minStableVotes || voteRatio < 0.5)) {
-      return null;
+  Future<void> _triggerCapture() async {
+    if (_disposed || _phase == _Phase.capturing || _phase == _Phase.coaching) {
+      return;
     }
 
-    return _AbcDetection(bestLetter, avgConfidence);
+    final frozenDetection = _resolveStablePrediction(requireConsensus: false);
+    _attemptCount++;
+    setState(() {
+      _phase = _Phase.capturing;
+      _capturedDetection = frozenDetection;
+    });
+    _holdController.stop();
+
+    try {
+      // Stop stream supaya takePicture tidak konflik
+      await _cameraController?.stopImageStream();
+
+      final dir = await getTemporaryDirectory();
+      final ts = DateTime.now().millisecondsSinceEpoch;
+      final savePath = '${dir.path}/sign_capture_$ts.jpg';
+
+      final xfile = await _cameraController!.takePicture();
+      final savedFile = await File(xfile.path).copy(savePath);
+
+      if (_disposed) return;
+      setState(() {
+        _phase = _Phase.coaching;
+        _capturedImagePath = savedFile.path;
+      });
+
+      await _runGemmaCoach(savedFile.path, frozenDetection);
+    } catch (e) {
+      if (!_disposed && mounted) {
+        setState(() {
+          _phase = _Phase.reviewed;
+          _coachError = 'Gagal mengambil foto: $e';
+        });
+      }
+    }
   }
+
+  Future<void> _runGemmaCoach(
+      String imagePath, _AbcDetection? detection) async {
+    String? tips;
+    String? err;
+    try {
+      if (_gemma.isLoaded) {
+        tips = await _gemma.reviewSignImage(
+          imagePath: imagePath,
+          targetLabel: widget.targetLetter,
+          detectedLabel: detection?.letter,
+          mode: widget.mode == AlphabetMode.sibi ? 'sibi' : 'bisindo_alfabet',
+          attemptCount: _attemptCount,
+        );
+      } else {
+        err = 'Model Gemma belum siap. Tips AI tidak tersedia saat ini.';
+      }
+    } catch (e) {
+      err = 'Tips AI gagal: $e';
+    }
+    if (_disposed) return;
+    setState(() {
+      _phase = _Phase.reviewed;
+      _coachText = tips;
+      _coachError = err;
+    });
+  }
+
+  Future<void> _retake() async {
+    if (_disposed) return;
+    setState(() {
+      _phase = _Phase.ready;
+      _capturedDetection = null;
+      _capturedImagePath = null;
+      _coachText = null;
+      _coachError = null;
+      _liveResult = null;
+    });
+    _recentPredictions.clear();
+    _stableSince = null;
+    _holdController.reset();
+
+    // Restart stream
+    try {
+      if (!_cameraController!.value.isStreamingImages) {
+        await _cameraController!.startImageStream(_onCameraFrame);
+      }
+    } catch (e) {
+      debugPrint('[AlphabetPractice] restart stream failed: $e');
+    }
+  }
+
+  String get _modeLabel => widget.mode == AlphabetMode.sibi ? 'SIBI' : 'BISINDO';
+  String get _modeHint => widget.mode == AlphabetMode.sibi ? '1 tangan' : '2 tangan';
+
+  bool get _isCorrect =>
+      _capturedDetection != null &&
+      _capturedDetection!.letter.toUpperCase() ==
+          widget.targetLetter.toUpperCase();
 
   @override
   void dispose() {
     _disposed = true;
-    _phaseTimer?.cancel();
-    _countdownController.dispose();
-    _cameraController?.stopImageStream();
+    _holdCheckTimer?.cancel();
+    _holdController.dispose();
+    _cameraController?.stopImageStream().catchError((_) {});
     _cameraController?.dispose();
     if (widget.mode == AlphabetMode.sibi) {
       _sibi.dispose();
@@ -326,7 +378,7 @@ class _AlphabetPracticeScreenState extends State<AlphabetPracticeScreen>
     super.dispose();
   }
 
-  // ─── Build ─────────────────────────────────────────────────────────────────
+  // ─── Build ────────────────────────────────────────────────────────────────
 
   @override
   Widget build(BuildContext context) {
@@ -335,8 +387,9 @@ class _AlphabetPracticeScreenState extends State<AlphabetPracticeScreen>
       body: SafeArea(
         child: Stack(
           children: [
-            // Camera preview
-            if (_isInitialized && _cameraController != null)
+            // Camera preview (hidden saat reviewed — show foto hasil capture)
+            if (_isInitialized && _cameraController != null &&
+                _phase != _Phase.reviewed && _phase != _Phase.coaching)
               Positioned.fill(
                 child: FittedBox(
                   fit: BoxFit.cover,
@@ -348,135 +401,39 @@ class _AlphabetPracticeScreenState extends State<AlphabetPracticeScreen>
                 ),
               ),
 
-            // Live detection badge (sudut kanan bawah frame)
-            if (_isInitialized && _phase == _Phase.countdown && _liveResult != null)
-              Positioned(
-                top: 72,
-                right: 16,
-                child: _liveDetectionBadge(_liveResult!),
-              ),
-
-            // Countdown indicator
-            if (_isInitialized && _phase == _Phase.countdown)
-              Center(child: _buildCountdown()),
-
-            // Capturing indicator
-            if (_isInitialized && _phase == _Phase.capturing)
-              Center(
-                child: Container(
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    color: Colors.black38,
-                    borderRadius: BorderRadius.circular(16),
-                  ),
-                  child: const SizedBox(
-                    width: 32,
-                    height: 32,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 3,
-                      color: Colors.white70,
-                    ),
-                  ),
+            // Captured photo (saat coaching/reviewed)
+            if ((_phase == _Phase.reviewed || _phase == _Phase.coaching) &&
+                _capturedImagePath != null)
+              Positioned.fill(
+                child: Image.file(
+                  File(_capturedImagePath!),
+                  fit: BoxFit.cover,
                 ),
               ),
+
+            // Dim overlay saat reviewed
+            if (_phase == _Phase.reviewed || _phase == _Phase.coaching)
+              Positioned.fill(
+                child: Container(color: Colors.black.withOpacity(0.35)),
+              ),
+
+            // Live detection badge (ready/holding)
+            if (_isInitialized &&
+                (_phase == _Phase.ready || _phase == _Phase.holding) &&
+                _liveResult != null)
+              Positioned(top: 72, right: 16, child: _liveBadge(_liveResult!)),
+
+            // Hold progress ring (saat holding)
+            if (_phase == _Phase.holding) Center(child: _holdRing()),
 
             // Loading
-            if (!_isInitialized && _error == null)
-              Center(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    CircularProgressIndicator(color: AppColors.primary),
-                    const SizedBox(height: 16),
-                    Text(
-                      'Memuat model AI...',
-                      style: GoogleFonts.beVietnamPro(
-                          color: Colors.white70, fontSize: 14),
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      'MediaPipe + Dense Classifier',
-                      style: GoogleFonts.jetBrainsMono(
-                          color: Colors.white38, fontSize: 11),
-                    ),
-                  ],
-                ),
-              ),
+            if (!_isInitialized && _error == null) _loadingView(),
 
             // Error
-            if (_error != null)
-              Center(
-                child: Padding(
-                  padding: const EdgeInsets.all(32),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(Icons.error_outline_rounded,
-                          color: AppColors.error, size: 48),
-                      const SizedBox(height: 16),
-                      Text(
-                        _error!,
-                        style: GoogleFonts.beVietnamPro(
-                            color: Colors.white, fontSize: 14),
-                        textAlign: TextAlign.center,
-                      ),
-                      const SizedBox(height: 24),
-                      ElevatedButton(
-                        onPressed: () => context.pop(),
-                        style: ElevatedButton.styleFrom(
-                            backgroundColor: AppColors.primary,
-                            foregroundColor: Colors.white),
-                        child: const Text('Kembali'),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
+            if (_error != null) _errorView(),
 
             // Top bar
-            Positioned(
-              top: 0,
-              left: 0,
-              right: 0,
-              child: Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                decoration: const BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.topCenter,
-                    end: Alignment.bottomCenter,
-                    colors: [Colors.black87, Colors.transparent],
-                  ),
-                ),
-                child: Row(
-                  children: [
-                    IconButton(
-                      icon: const Icon(Icons.arrow_back_rounded,
-                          color: Colors.white),
-                      onPressed: () => context.pop(),
-                    ),
-                    const Spacer(),
-                    _targetBadge(),
-                    const Spacer(),
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 10, vertical: 6),
-                      decoration: BoxDecoration(
-                        color: Colors.black54,
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Text(
-                        '$_correctCount/$_totalCount',
-                        style: GoogleFonts.jetBrainsMono(
-                            color: Colors.white70,
-                            fontSize: 13,
-                            fontWeight: FontWeight.w600),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
+            _topBar(),
 
             // Bottom panel
             Positioned(
@@ -490,22 +447,23 @@ class _AlphabetPracticeScreenState extends State<AlphabetPracticeScreen>
                     begin: Alignment.bottomCenter,
                     end: Alignment.topCenter,
                     colors: [
-                      Colors.black.withOpacity(0.9),
-                      Colors.black.withOpacity(0.5),
+                      Colors.black.withOpacity(0.92),
+                      Colors.black.withOpacity(0.55),
                       Colors.transparent,
                     ],
                   ),
                 ),
-                child: _buildResultPanel(),
+                child: _bottomPanel(),
               ),
             ),
 
             // Success flash
-            if (_phase == _Phase.result && _isCorrect)
+            if (_phase == _Phase.reviewed && _isCorrect)
               Positioned.fill(
                 child: IgnorePointer(
                   child: Container(
-                          color: AppColors.success.withOpacity(0.12))
+                    color: AppColors.success.withOpacity(0.12),
+                  )
                       .animate()
                       .fadeIn(duration: 200.ms)
                       .then()
@@ -518,85 +476,86 @@ class _AlphabetPracticeScreenState extends State<AlphabetPracticeScreen>
     );
   }
 
-  // ─── Widgets ───────────────────────────────────────────────────────────────
+  // ─── Sub-widgets ──────────────────────────────────────────────────────────
 
-  /// Badge kecil yang menampilkan deteksi realtime (saat countdown berlangsung)
-  Widget _liveDetectionBadge(_AbcDetection result) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-      decoration: BoxDecoration(
-        color: Colors.black54,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: Colors.white24),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Container(
-            width: 6,
-            height: 6,
-            decoration: const BoxDecoration(
-              color: Colors.greenAccent,
-              shape: BoxShape.circle,
-            ),
-          ),
-          const SizedBox(width: 6),
-          Text(
-            result.letter,
-            style: GoogleFonts.jetBrainsMono(
-              color: Colors.white,
-              fontSize: 14,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-          const SizedBox(width: 4),
-          Text(
-            '${(result.confidence * 100).toInt()}%',
-            style: GoogleFonts.jetBrainsMono(
-              color: Colors.white54,
-              fontSize: 11,
-            ),
-          ),
-        ],
-      ),
-    ).animate().fadeIn(duration: 150.ms);
-  }
-
-  Widget _buildCountdown() {
-    return AnimatedBuilder(
-      animation: _countdownController,
-      builder: (_, __) => SizedBox(
-        width: 52,
-        height: 52,
-        child: Stack(
-          alignment: Alignment.center,
+  Widget _loadingView() => Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
           children: [
-            CircularProgressIndicator(
-              value: _countdownController.value,
-              strokeWidth: 3,
-              color: Colors.white.withOpacity(0.6),
-              backgroundColor: Colors.white.withOpacity(0.12),
-            ),
-            Icon(Icons.front_hand_rounded,
-                color: Colors.white.withOpacity(0.4), size: 20),
+            CircularProgressIndicator(color: AppColors.primary),
+            const SizedBox(height: 16),
+            Text('Memuat model AI...',
+                style: GoogleFonts.beVietnamPro(
+                    color: Colors.white70, fontSize: 14)),
+            const SizedBox(height: 8),
+            Text('MediaPipe + Dense + Gemma Vision',
+                style: GoogleFonts.jetBrainsMono(
+                    color: Colors.white38, fontSize: 11)),
           ],
         ),
-      ),
-    );
-  }
+      );
+
+  Widget _errorView() => Center(
+        child: Padding(
+          padding: const EdgeInsets.all(32),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.error_outline_rounded,
+                  color: AppColors.error, size: 48),
+              const SizedBox(height: 16),
+              Text(_error!,
+                  style: GoogleFonts.beVietnamPro(
+                      color: Colors.white, fontSize: 14),
+                  textAlign: TextAlign.center),
+              const SizedBox(height: 24),
+              ElevatedButton(
+                onPressed: () => context.pop(),
+                style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.primary,
+                    foregroundColor: Colors.white),
+                child: const Text('Kembali'),
+              ),
+            ],
+          ),
+        ),
+      );
+
+  Widget _topBar() => Positioned(
+        top: 0,
+        left: 0,
+        right: 0,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          decoration: const BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: [Colors.black87, Colors.transparent],
+            ),
+          ),
+          child: Row(
+            children: [
+              IconButton(
+                icon: const Icon(Icons.arrow_back_rounded, color: Colors.white),
+                onPressed: () => context.pop(),
+              ),
+              const Spacer(),
+              _targetBadge(),
+              const Spacer(),
+              const SizedBox(width: 48),
+            ],
+          ),
+        ),
+      );
 
   Widget _targetBadge() {
-    final isOk = _isCorrect && _phase == _Phase.result;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       decoration: BoxDecoration(
-        color: isOk
-            ? AppColors.success.withOpacity(0.3)
-            : Colors.white.withOpacity(0.15),
+        color: Colors.white.withOpacity(0.15),
         borderRadius: BorderRadius.circular(AppRadius.full),
-        border: Border.all(
-            color:
-                isOk ? AppColors.success.withOpacity(0.6) : Colors.white30),
+        border: Border.all(color: Colors.white30),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -607,15 +566,12 @@ class _AlphabetPracticeScreenState extends State<AlphabetPracticeScreen>
               color: Colors.white.withOpacity(0.2),
               borderRadius: BorderRadius.circular(6),
             ),
-            child: Text(
-              _modeLabel,
-              style: GoogleFonts.jetBrainsMono(
-                color: Colors.white,
-                fontSize: 9,
-                fontWeight: FontWeight.w700,
-                letterSpacing: 0.6,
-              ),
-            ),
+            child: Text(_modeLabel,
+                style: GoogleFonts.jetBrainsMono(
+                    color: Colors.white,
+                    fontSize: 9,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: 0.6)),
           ),
           const SizedBox(width: 8),
           Text(widget.targetLetter,
@@ -623,69 +579,299 @@ class _AlphabetPracticeScreenState extends State<AlphabetPracticeScreen>
                   color: Colors.white,
                   fontSize: 22,
                   fontWeight: FontWeight.w800)),
-          if (isOk) ...[
-            const SizedBox(width: 4),
-            Icon(Icons.check_circle, color: AppColors.success, size: 16),
-          ],
         ],
       ),
     );
   }
 
-  Widget _buildResultPanel() {
+  Widget _liveBadge(_AbcDetection r) {
+    final onTarget = r.letter.toUpperCase() == widget.targetLetter.toUpperCase();
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: Colors.black54,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(
+            color: onTarget ? AppColors.success : Colors.white24,
+            width: onTarget ? 1.5 : 1),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 6,
+            height: 6,
+            decoration: BoxDecoration(
+              color: onTarget ? AppColors.success : Colors.amberAccent,
+              shape: BoxShape.circle,
+            ),
+          ),
+          const SizedBox(width: 6),
+          Text(r.letter,
+              style: GoogleFonts.jetBrainsMono(
+                  color: Colors.white,
+                  fontSize: 14,
+                  fontWeight: FontWeight.w700)),
+          const SizedBox(width: 4),
+          Text('${(r.confidence * 100).toInt()}%',
+              style: GoogleFonts.jetBrainsMono(
+                  color: Colors.white54, fontSize: 11)),
+        ],
+      ),
+    ).animate().fadeIn(duration: 150.ms);
+  }
+
+  Widget _holdRing() {
+    return AnimatedBuilder(
+      animation: _holdController,
+      builder: (_, __) {
+        final v = _stableSince == null
+            ? 0.0
+            : (DateTime.now().difference(_stableSince!).inMilliseconds /
+                    _holdDuration.inMilliseconds)
+                .clamp(0.0, 1.0);
+        return SizedBox(
+          width: 80,
+          height: 80,
+          child: Stack(
+            alignment: Alignment.center,
+            children: [
+              CircularProgressIndicator(
+                value: v,
+                strokeWidth: 4,
+                color: AppColors.success,
+                backgroundColor: Colors.white.withOpacity(0.18),
+              ),
+              Icon(Icons.camera_alt_rounded,
+                  color: Colors.white.withOpacity(0.85), size: 28),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _bottomPanel() {
     switch (_phase) {
       case _Phase.preparing:
-        return _pill(Icons.hourglass_top_rounded, 'Mempersiapkan...',
-            Colors.white60);
-
-      case _Phase.countdown:
         return _pill(
-          Icons.front_hand_rounded,
-          'Tunjukkan isyarat "${widget.targetLetter}" ($_modeHint) ke kamera',
-          Colors.white60,
-        );
+            Icons.hourglass_top_rounded, 'Mempersiapkan...', Colors.white60);
 
-      case _Phase.capturing:
-        return Row(
-          mainAxisAlignment: MainAxisAlignment.center,
+      case _Phase.ready:
+        return Column(
+          mainAxisSize: MainAxisSize.min,
           children: [
-            const SizedBox(
-              width: 16,
-              height: 16,
-              child: CircularProgressIndicator(
-                  strokeWidth: 2, color: Colors.white54),
+            _pill(
+              Icons.front_hand_rounded,
+              'Tunjukkan isyarat "${widget.targetLetter}" ($_modeHint) — tahan ~2 detik',
+              Colors.white70,
             ),
-            const SizedBox(width: 10),
-            Text('Menganalisis...',
-                style: GoogleFonts.beVietnamPro(
-                    color: Colors.white60, fontSize: 14)),
+            const SizedBox(height: 12),
+            _captureButton(),
           ],
         );
 
-      case _Phase.result:
-        if (_lastResult == null) {
-          return _resultCard(
-            Icons.pan_tool_outlined,
-            Colors.white54,
-            'Tangan tidak terdeteksi',
-            'Pastikan tangan terlihat jelas di kamera',
-          );
-        }
-        if (_isCorrect) {
-          return _resultCard(
-            Icons.check_circle_rounded,
-            AppColors.success,
-            'Benar! "${_lastResult!.letter}" ✨',
-            '${(_lastResult!.confidence * 100).toStringAsFixed(1)}% confidence',
-          );
-        }
-        return _resultCard(
-          Icons.close_rounded,
-          AppColors.error,
-          'Terdeteksi: "${_lastResult!.letter}"',
-          'Target "${widget.targetLetter}" — ${(_lastResult!.confidence * 100).toStringAsFixed(1)}%',
+      case _Phase.holding:
+        return Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            _pill(
+              Icons.radio_button_checked,
+              'Tahan posisi ini... mengambil foto',
+              AppColors.success,
+            ),
+            const SizedBox(height: 12),
+            _captureButton(),
+          ],
         );
+
+      case _Phase.capturing:
+        return _pill(
+            Icons.photo_camera_rounded, 'Menjepret foto...', Colors.white70);
+
+      case _Phase.coaching:
+        return Container(
+          padding: const EdgeInsets.all(20),
+          decoration: BoxDecoration(
+            color: Colors.white.withOpacity(0.08),
+            borderRadius: BorderRadius.circular(AppRadius.xl),
+          ),
+          child: Row(
+            children: [
+              const SizedBox(
+                width: 20,
+                height: 20,
+                child: CircularProgressIndicator(
+                    strokeWidth: 2.5, color: Colors.white70),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Text(
+                  'Gemma 4 Vision menganalisis isyaratmu...',
+                  style: GoogleFonts.beVietnamPro(
+                      color: Colors.white, fontSize: 13.5),
+                ),
+              ),
+            ],
+          ),
+        );
+
+      case _Phase.reviewed:
+        return _reviewCard();
     }
+  }
+
+  Widget _captureButton() {
+    return ElevatedButton.icon(
+      onPressed: (_phase == _Phase.ready || _phase == _Phase.holding)
+          ? _triggerCapture
+          : null,
+      icon: const Icon(Icons.camera_alt_rounded),
+      label: Text('Jepret Sekarang',
+          style: GoogleFonts.plusJakartaSans(
+              fontWeight: FontWeight.w700, fontSize: 14)),
+      style: ElevatedButton.styleFrom(
+        backgroundColor: Colors.white,
+        foregroundColor: Colors.black87,
+        padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 12),
+        shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(AppRadius.full)),
+      ),
+    );
+  }
+
+  Widget _reviewCard() {
+    final detectionLine = _capturedDetection == null
+        ? 'Tangan tidak terdeteksi'
+        : 'Terdeteksi: ${_capturedDetection!.letter} '
+            '(${(_capturedDetection!.confidence * 100).toStringAsFixed(0)}%)';
+
+    final headerColor = _isCorrect
+        ? AppColors.success
+        : (_capturedDetection == null ? Colors.white54 : AppColors.error);
+    final headerIcon = _isCorrect
+        ? Icons.check_circle_rounded
+        : (_capturedDetection == null
+            ? Icons.pan_tool_outlined
+            : Icons.close_rounded);
+    final headerTitle = _isCorrect
+        ? 'Keren! Isyarat "${widget.targetLetter}" sudah tepat'
+        : (_capturedDetection == null
+            ? 'Tangan kurang jelas'
+            : 'Belum pas — target "${widget.targetLetter}"');
+
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.08),
+        borderRadius: BorderRadius.circular(AppRadius.xl),
+        border: Border.all(color: headerColor.withOpacity(0.35)),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(headerIcon, color: headerColor, size: 26),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  headerTitle,
+                  style: GoogleFonts.plusJakartaSans(
+                      color: Colors.white,
+                      fontSize: 16,
+                      fontWeight: FontWeight.w800),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Text(detectionLine,
+              style: GoogleFonts.jetBrainsMono(
+                  color: Colors.white54, fontSize: 11)),
+          const SizedBox(height: 12),
+
+          // Gemma tips card
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: AppColors.primary.withOpacity(0.15),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: AppColors.primary.withOpacity(0.3)),
+            ),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(Icons.auto_awesome_rounded,
+                    color: AppColors.primary, size: 18),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('Tips dari Gemma 4 Vision',
+                          style: GoogleFonts.plusJakartaSans(
+                              color: AppColors.primary,
+                              fontSize: 11,
+                              fontWeight: FontWeight.w700,
+                              letterSpacing: 0.3)),
+                      const SizedBox(height: 4),
+                      Text(
+                        _coachError ??
+                            _coachText ??
+                            'Tidak ada tips dari AI.',
+                        style: GoogleFonts.beVietnamPro(
+                            color: Colors.white, fontSize: 13, height: 1.4),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+          const SizedBox(height: 14),
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: () => context.pop(),
+                  icon: const Icon(Icons.check_rounded, size: 18),
+                  label: const Text('Selesai'),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: Colors.white,
+                    side: const BorderSide(color: Colors.white30),
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12)),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                flex: 2,
+                child: ElevatedButton.icon(
+                  onPressed: _retake,
+                  icon: const Icon(Icons.refresh_rounded, size: 18),
+                  label: Text('Coba Lagi',
+                      style: GoogleFonts.plusJakartaSans(
+                          fontWeight: FontWeight.w700)),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.primary,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12)),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    ).animate().fadeIn(duration: 250.ms).slideY(
+        begin: 0.05, end: 0, duration: 250.ms, curve: Curves.easeOut);
   }
 
   Widget _pill(IconData icon, String text, Color color) {
@@ -708,40 +894,5 @@ class _AlphabetPracticeScreenState extends State<AlphabetPracticeScreen>
         ],
       ),
     );
-  }
-
-  Widget _resultCard(IconData icon, Color c, String title, String sub) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-      decoration: BoxDecoration(
-        color: c.withOpacity(0.15),
-        borderRadius: BorderRadius.circular(AppRadius.xl),
-        border: Border.all(color: c.withOpacity(0.3)),
-      ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(icon, color: c, size: 28),
-          const SizedBox(width: 12),
-          Flexible(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(title,
-                    style: GoogleFonts.plusJakartaSans(
-                        color: c == Colors.white54 ? Colors.white : c,
-                        fontSize: 16,
-                        fontWeight: FontWeight.w700)),
-                Text(sub,
-                    style: GoogleFonts.beVietnamPro(
-                        color: Colors.white54, fontSize: 12)),
-              ],
-            ),
-          ),
-        ],
-      ),
-    ).animate().fadeIn(duration: 250.ms).scale(
-        begin: const Offset(0.97, 0.97), duration: 250.ms);
   }
 }

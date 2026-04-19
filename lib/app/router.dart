@@ -12,11 +12,13 @@ import '../features/communication/screens/comm_deaf_to_hearing_screen.dart';
 import '../features/communication/screens/comm_hearing_to_deaf_screen.dart';
 import '../features/learning/screens/learning_hub_screen.dart';
 import '../features/learning/screens/learn_kata_screen.dart';
+import '../features/learning/screens/learn_kata_picker_screen.dart';
 import '../features/learning/screens/learn_alfabet_screen.dart';
 import '../features/learning/screens/alphabet_practice_screen.dart'
     show AlphabetMode;
 import '../features/learning/screens/learn_idiom_screen.dart';
 import '../features/learning/screens/learn_artikulasi_screen.dart';
+import '../features/learning/screens/vocabulary_helper_screen.dart';
 import '../features/history/screens/history_screen.dart';
 import '../features/settings/screens/settings_screen.dart';
 
@@ -84,7 +86,8 @@ final routerProvider = Provider<GoRouter>((ref) {
       _slideRoute('/comm-deaf', CommDeafToHearingScreen()),
       _slideRoute('/comm-hearing', CommHearingToDeafScreen()),
       _slideRoute('/learn', LearningHubScreen()),
-      _slideRoute('/learn/kata', LearnKataScreen()),
+      _slideRoute('/learn/kata', LearnKataPickerScreen()),
+      _slideRoute('/learn/kata/practice', LearnKataScreen()),
       _slideRoute('/learn/alfabet', LearnAlfabetScreen()),
       _slideRoute('/learn/alfabet/sibi',
           LearnAlfabetScreen(initialMode: AlphabetMode.sibi)),
@@ -92,6 +95,7 @@ final routerProvider = Provider<GoRouter>((ref) {
           LearnAlfabetScreen(initialMode: AlphabetMode.bisindo)),
       _slideRoute('/learn/idiom', LearnIdiomScreen()),
       _slideRoute('/learn/artikulasi', LearnArtikulasiScreen()),
+      _slideRoute('/learn/kamus', VocabularyHelperScreen()),
       _slideRoute('/history', HistoryScreen()),
       _slideRoute('/settings', SettingsScreen()),
     ],

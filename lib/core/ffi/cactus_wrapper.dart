@@ -6,13 +6,28 @@ import 'package:flutter/foundation.dart';
 import 'cactus.dart';
 
 /// A chat message for Cactus completion.
+///
+/// [images] — optional list of absolute file paths for Gemma 4 vision.
+/// Cactus parses `"images": [...]` field di messages JSON (sibling dari content)
+/// dan otomatis load via stb_image → patch embedding via vision encoder.
 class ChatMessage {
   final String role;
   final String content;
+  final List<String>? images;
 
-  const ChatMessage({required this.role, required this.content});
+  const ChatMessage({
+    required this.role,
+    required this.content,
+    this.images,
+  });
 
-  Map<String, dynamic> toJson() => {'role': role, 'content': content};
+  Map<String, dynamic> toJson() {
+    final map = <String, dynamic>{'role': role, 'content': content};
+    if (images != null && images!.isNotEmpty) {
+      map['images'] = images;
+    }
+    return map;
+  }
 }
 
 /// Parsed response from cactusComplete.

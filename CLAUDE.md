@@ -136,16 +136,93 @@ lib/main.dart              — Entry point (flutter_gemma dicomment)
 ## Fitur Contextual Empathy (Gemma 4)
 
 ### Deaf -> Hearing
-`GemmaService.refineGlossWithEmpathy(glossList)` -> `EmpathyResult`:
-- `sentence`: terjemahan kalimat lengkap
-- `aiSuggestion`: saran proaktif untuk orang dengar
+`GemmaService.getEmpathyTips(sentence)` -> `List<String>` (2-4 bullet tips):
+- System prompt khusus bullet, parsing line-by-line (strip `-`, `*`, `•`, `1.`, `1)`)
+- State: `DeafToHearingState.empathyTips` (List<String>)
+- UI: `_AiSuggestionCard(tips: [...])` — render bullet dots di bawah kalimat terjemahan
 
 Contoh: gloss `SAYA | PUSING | OBAT`
 -> "Saya merasa pusing dan butuh obat."
--> (Saran AI): "Tanyakan apakah dia butuh diantar ke ruang kesehatan atau air putih."
+-> Tips empati AI:
+   • Tanyakan apakah dia butuh diantar ke ruang kesehatan.
+   • Bicara perlahan dan hadap wajah saat merespon.
+   • Tawarkan air putih atau tempat duduk yang nyaman.
 
 ### Hearing -> Deaf
 `GemmaService.simplifyForDeaf(text)` -> teks bersih tanpa filler words
+
+---
+
+## Gemma 4 Vision Sign Coach
+
+### Alur
+1. User pilih huruf dari `learn_alfabet_screen.dart`
+2. Masuk `alphabet_practice_screen.dart` dengan fase `ready → holding (2.2s stable) → capturing → coaching → reviewed`
+3. `CameraController.takePicture()` saat stabil → save ke temp dir (.jpg)
+4. CNN prediksi untuk validasi (benar/salah)
+5. Gemma 4 Vision review foto (via Cactus SDK) dengan knowledge-injected prompt
+6. Tampilkan card: hasil CNN + tips Gemma + tombol "Coba Lagi" / "Selesai"
+
+### Knowledge Injection (WAJIB)
+Gemma 4 TIDAK punya pengetahuan bawaan tentang bentuk huruf BISINDO/SIBI.
+Solusi: inject referensi bentuk per huruf di user message setiap call.
+
+- `GemmaService._bisindoAlphabetReference` (26 huruf A-Z BISINDO, 2 tangan)
+- `GemmaService._sibiAlphabetReference` (24 huruf A-Y skip J&Z, 1 tangan)
+- `GemmaService._bisindoWordReference` (6 kata: maaf, saya, terima_kasih, tuli, dengar, rumah)
+
+Format user message yang dikirim:
+```
+Mode: BISINDO (alfabet, 2 tangan)
+Target: A
+Ini percobaan ke-3. Pengguna sudah mencoba berulang — beri dorongan positif.
+
+Referensi bentuk "A" yang BENAR:
+Dua tangan mengepal, ibu jari kedua tangan saling bertemu/menempel...
+
+Hasil CNN: SALAH (terdeteksi "E", target seharusnya "A").
+
+Bandingkan foto tangan pengguna dengan referensi di atas...
+```
+
+### Attempt Counter
+- `_attemptCount` di screen state, increment tiap `_triggerCapture()`
+- Dikirim ke Gemma supaya tone adaptif:
+  - attempt 1 → netral
+  - attempt 2 → "tetap rileks"
+  - attempt ≥3 → "beri dorongan positif, jangan menghakimi"
+
+### Cactus Vision API
+Image path dipass via field `"images": [absolutePath]` di messages JSON (sibling dari `content`).
+Cactus parse di `cactus_utils.h::parse_messages_json` → load via stb_image → patch embedding.
+TIDAK butuh ubah FFI — cukup extend `ChatMessage` dengan `images: List<String>?`.
+
+Method: `GemmaService.reviewSignImage({imagePath, targetLabel, detectedLabel, mode, attemptCount})`
+
+---
+
+## Deaf Vocabulary Helper
+
+### Tujuan
+Teman Tuli kadang sulit memahami kata/istilah baru (asuransi, polis, formulir).
+Screen `/learn/kamus` memungkinkan input kata → Gemma jelaskan dengan bahasa sederhana.
+
+### Flow
+1. TextField + tombol send (atau tap chip saran cepat)
+2. `GemmaService.explainVocabulary(word)` → `VocabularyExplanation(word, meaning, example)`
+3. Hasil di-insert ke `_history` list → scrollable card di bawah input
+
+### System Prompt Structure
+Gemma diinstruksikan return format fixed:
+```
+Arti: [1 kalimat singkat]
+Contoh: [1 kalimat contoh penggunaan]
+```
+Parser split by `\n`, cari prefix "Arti:" dan "Contoh:".
+
+### Local-first, no RAG
+Pakai knowledge internal Gemma 4 — untuk kata umum Indonesia ini cukup.
+Kalau nanti butuh istilah super spesifik (hukum, medis lokal), bisa tambah RAG dengan `cactusRagQuery`, tapi tidak prioritas MVP.
 
 ---
 
@@ -168,7 +245,7 @@ LSTM model: `assets/models/bisindo_gesture.tflite`, 30-frame window, 32+ kelas B
 
 ---
 
-## Status Saat Ini (8 Apr 2026)
+## Status Saat Ini (20 Apr 2026)
 
 | Fitur | Status |
 |---|---|
@@ -176,14 +253,29 @@ LSTM model: `assets/models/bisindo_gesture.tflite`, 30-frame window, 32+ kelas B
 | Gemma 4 Audio Transcription (PRIMARY STT) | ✅ Bekerja — ~28s untuk 7s audio, 2.2 tok/s, fully offline |
 | Gemma simplifyForDeaf (Hearing->Deaf) | ✅ Bekerja — 4-9s, 3.5-4.5 tok/s |
 | Gemma gloss -> kalimat (Deaf->Hearing) | ✅ Implemented, belum ditest end-to-end |
-| Contextual Empathy (AI suggestion) | ✅ Implemented, belum ditest end-to-end |
+| Contextual Empathy — bullet tips | ✅ Implemented (getEmpathyTips → List&lt;String&gt;, rendered as bullet card), belum ditest |
+| Gemma 4 Vision Sign Coach (alfabet) | ✅ Implemented — single-shot capture + knowledge-injected prompt per huruf, belum ditest |
+| Deaf Vocabulary Helper | ✅ Implemented — /learn/kamus, Gemma explain (Arti + Contoh), belum ditest |
+| BISINDO Kata Picker (dropdown preview) | ✅ Implemented — /learn/kata picker, video preview masih placeholder |
 | Thinking mode disabled | ✅ enable_thinking_if_supported: false |
 | OOM guard panjang audio | ✅ Downsample 2-tap hanya jika PCM > 256KB |
 | Whisper fallback | ✅ Opsional — hanya jika Gemma audio gagal |
 | MediaPipe real detection | Implemented, belum ditest end-to-end |
-| YOLO alphabet | ✅ Bekerja |
-| Gemma 4 Vision (sign detection) | Belum diimplementasi |
+| YOLO alphabet | ✅ Bekerja (legacy, sudah diganti Dense classifier) |
+| SIBI + BISINDO Alphabet (Dense classifier) | ✅ Bekerja — SIBI 24 kelas (1 tangan), BISINDO 26 kelas A-Z + NOTHING (2 tangan) |
 | TTS | Belum diverifikasi |
+
+### TODO Lanjutan (prioritas urut)
+1. **Test end-to-end Vision Sign Coach di Pixel 6a** — ukur latensi image encode + inference (~10-15s warm-up, 4-8s steady?)
+2. **Test Contextual Empathy bullet tips end-to-end** — cek format parsing (bullet "-" vs numbered)
+3. **Video preview BISINDO kata** — ganti placeholder di `learn_kata_picker_screen.dart` dengan video demo per kata (6 kata saja untuk fase 1)
+4. **Retake session reset** — sekarang `_attemptCount` direset saat screen re-open; tambah tombol "Ganti Huruf" di review panel untuk pindah target tanpa keluar screen
+5. **Gemma Vision Sign Coach untuk kata BISINDO** — ekstensi ke mode `bisindo_kata` (LSTM detection + capture frame representatif)
+6. **Vocabulary Helper — streaming generation** — sekarang blocking 4-9s, enak kalau streaming token-per-token
+7. **TTS verifikasi + wire ke bullet tips** — opsi "dengarkan tips" untuk orang dengar buta huruf
+8. **Emergency Quick-Sign feature** (dari strategi hackathon) — 1 tombol → "Saya tuli. Saya butuh bantuan." → TTS
+9. **Video demo kata BISINDO** — rekam library video manusia asli per kata (bukan animasi)
+10. **Dataset BISINDO alphabet merger** — re-train dengan dataset faizalfarizi + idhamozi (script `ml/prepare_bisindo_alphabet.py` sudah siap, tinggal run di Kaggle)
 
 ---
 

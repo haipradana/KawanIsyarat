@@ -211,9 +211,14 @@ class _CommDeafToHearingScreenState
               onSpeak: () =>
                   ref.read(deafToHearingProvider.notifier).speakSentence(),
             ),
-            // Contextual Empathy — AI Suggestion Card
-            if (state.aiSuggestion != null && state.aiSuggestion!.isNotEmpty)
-              _AiSuggestionCard(suggestion: state.aiSuggestion!)
+            // Contextual Empathy — bullet tips dari Gemma 4
+            if (state.empathyTips.isNotEmpty)
+              _AiSuggestionCard(tips: state.empathyTips)
+                  .animate()
+                  .fadeIn(duration: 400.ms, delay: 100.ms)
+                  .slideY(begin: 0.1, end: 0)
+            else if (state.aiSuggestion != null && state.aiSuggestion!.isNotEmpty)
+              _AiSuggestionCard(tips: [state.aiSuggestion!])
                   .animate()
                   .fadeIn(duration: 400.ms, delay: 100.ms)
                   .slideY(begin: 0.1, end: 0),
@@ -1104,11 +1109,11 @@ class _ControlButton extends StatelessWidget {
   }
 }
 
-/// Card saran empatik dari Gemma untuk lawan bicara (orang dengar).
-/// Ditampilkan di bawah kalimat terjemahan pada alur Deaf→Hearing.
+/// Contextual Empathy — tips empatik dari Gemma 4 untuk orang dengar.
+/// Format bullet points, muncul di bawah kalimat terjemahan pada alur Deaf→Hearing.
 class _AiSuggestionCard extends StatelessWidget {
-  final String suggestion;
-  const _AiSuggestionCard({required this.suggestion});
+  final List<String> tips;
+  const _AiSuggestionCard({required this.tips});
 
   @override
   Widget build(BuildContext context) {
@@ -1149,7 +1154,7 @@ class _AiSuggestionCard extends StatelessWidget {
                         size: 12, color: Color(0xFF8B5CF6)),
                     SizedBox(width: 4),
                     Text(
-                      'SARAN AI',
+                      'TIPS EMPATI AI',
                       style: GoogleFonts.plusJakartaSans(
                         fontSize: 10,
                         fontWeight: FontWeight.w700,
@@ -1160,19 +1165,50 @@ class _AiSuggestionCard extends StatelessWidget {
                   ],
                 ),
               ),
+              SizedBox(width: 8),
+              Text(
+                'Untuk kamu yang mendengar',
+                style: GoogleFonts.beVietnamPro(
+                  fontSize: 11,
+                  color: AppColors.textPrimary.withOpacity(0.5),
+                ),
+              ),
             ],
           ),
           SizedBox(height: AppSpacing.md),
-          Text(
-            suggestion,
-            style: GoogleFonts.beVietnamPro(
-              fontSize: 14,
-              fontWeight: FontWeight.w400,
-              color: AppColors.textPrimary.withOpacity(0.85),
-              height: 1.5,
-              fontStyle: FontStyle.italic,
-            ),
-          ),
+          ...tips.asMap().entries.map((entry) {
+            final i = entry.key;
+            final text = entry.value;
+            return Padding(
+              padding: EdgeInsets.only(
+                  bottom: i == tips.length - 1 ? 0 : AppSpacing.sm),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Container(
+                    margin: EdgeInsets.only(top: 6, right: 10),
+                    width: 6,
+                    height: 6,
+                    decoration: BoxDecoration(
+                      color: Color(0xFF8B5CF6),
+                      shape: BoxShape.circle,
+                    ),
+                  ),
+                  Expanded(
+                    child: Text(
+                      text,
+                      style: GoogleFonts.beVietnamPro(
+                        fontSize: 13.5,
+                        fontWeight: FontWeight.w400,
+                        color: AppColors.textPrimary.withOpacity(0.88),
+                        height: 1.45,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            );
+          }),
         ],
       ),
     );

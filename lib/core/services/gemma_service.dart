@@ -68,6 +68,134 @@ TEMAN RUMAH JAUH -> Rumah teman saya jauh.
 Berikan 1 saran singkat empatik untuk orang dengar yang berkomunikasi dengan orang Tuli yang mengatakan kalimat ini. Jawab 1 kalimat saja.
 ''';
 
+  static const _empathyTipsPrompt = '''
+Kamu asisten empati untuk orang dengar yang sedang ngobrol dengan teman Tuli.
+Orang Tuli baru saja menyampaikan pesan. Buat 3 tips singkat (maksimal 12 kata per tips) yang bisa membantu orang dengar merespon dengan empati, sabar, dan inklusif.
+Format: tiap tips di baris terpisah, diawali dengan tanda "-". Jangan pakai nomor. Jangan tambahkan kalimat pembuka atau penutup.
+Jawab HANYA 3 baris tips.
+
+Contoh input: "Saya pusing, butuh obat."
+Contoh output:
+- Tanyakan apakah dia butuh diantar ke ruang kesehatan.
+- Bicara perlahan dan hadap wajah saat merespon.
+- Tawarkan air putih atau tempat duduk yang nyaman.
+''';
+
+  static const _visionCoachSystemPrompt = '''
+Kamu pelatih bahasa isyarat Indonesia (BISINDO & SIBI) yang ramah dan sabar.
+
+Kamu akan menerima:
+- Foto tangan pengguna
+- Huruf/kata target yang sedang dipelajari
+- Referensi bentuk isyarat yang BENAR untuk target tersebut
+- Hasil CNN detector (benar/salah) + jumlah percobaan
+
+Tugasmu: bandingkan foto dengan referensi, lalu beri umpan balik singkat (maks. 2 kalimat) dalam Bahasa Indonesia.
+
+Aturan:
+- Jika CNN bilang BENAR: beri apresiasi tulus + 1 tips penyempurnaan kecil (kejelasan, kemantapan, kecepatan).
+- Jika CNN bilang SALAH: bandingkan foto ke referensi, sebutkan SATU bagian paling jelas yang meleset (jari mana, arah mana, posisi mana), lalu cara perbaikinya.
+- Jika percobaan sudah >2 kali gagal: tambahkan kalimat penyemangat lembut, jangan menghakimi.
+- JANGAN mengarang referensi baru. Pakai deskripsi referensi yang diberikan.
+- JANGAN jelaskan teori. Langsung ke saran praktis.
+- Gunakan kata "kamu" yang hangat, seperti teman yang mendampingi.
+''';
+
+  /// Referensi bentuk isyarat per huruf/kata.
+  /// Dipakai sebagai ground-truth yang di-inject ke prompt — Gemma 4 tidak tahu
+  /// bentuk pasti huruf BISINDO/SIBI dari training dasarnya, jadi harus dikasih
+  /// tahu eksplisit supaya koreksinya tidak ngawur.
+  ///
+  /// Sumber deskripsi: konvensi BISINDO (2 tangan) dan SIBI (1 tangan) standar.
+  static const Map<String, String> _bisindoAlphabetReference = {
+    'A': 'Dua tangan mengepal, ibu jari kedua tangan saling bertemu/menempel di ujung, posisi horizontal.',
+    'B': 'Tangan kiri terbuka tegak (empat jari rapat, ibu jari menekuk), telapak menghadap depan. Jari telunjuk tangan kanan menyentuh telapak tangan kiri.',
+    'C': 'Kedua tangan membentuk setengah lingkaran huruf "C" yang saling berhadapan, jari-jari melengkung.',
+    'D': 'Telunjuk tangan kiri lurus ke atas. Tangan kanan membentuk huruf C melingkari telunjuk kiri.',
+    'E': 'Dua tangan mengepal, jari-jari ditekuk ke dalam. Kedua kepalan saling bertumpuk atau berdekatan.',
+    'F': 'Telunjuk dan ibu jari membentuk lingkaran (OK sign) pada masing-masing tangan, dua tangan berdekatan di depan dada.',
+    'G': 'Telunjuk tangan kiri menunjuk ke depan horizontal. Ibu jari dan telunjuk tangan kanan menjepit/paralel di sampingnya.',
+    'H': 'Dua tangan membentuk "H": masing-masing tangan telunjuk dan jari tengah rapat mengarah ke depan, saling sejajar horizontal.',
+    'I': 'Kedua kelingking tangan saling bertemu/berhadapan, jari lain mengepal.',
+    'J': 'Kelingking tangan dominan membuat gerakan kurva menurun seperti bentuk huruf J (isyarat dinamis).',
+    'K': 'Telunjuk dan jari tengah membentuk "V" pada kedua tangan, ibu jari menyentuh pangkal jari tengah, dua tangan bertemu.',
+    'L': 'Telunjuk dan ibu jari membentuk "L" (siku-siku) pada tangan dominan, tangan lain mengepal atau datar sebagai alas.',
+    'M': 'Tiga jari (telunjuk, tengah, manis) tangan kanan menjuntai ke bawah menyentuh punggung tangan kiri yang datar horizontal.',
+    'N': 'Dua jari (telunjuk, tengah) tangan kanan menjuntai ke bawah menyentuh punggung tangan kiri yang datar.',
+    'O': 'Kedua tangan membentuk lingkaran "O" dengan jari-jari melengkung, dua tangan bertemu membentuk bulatan utuh.',
+    'P': 'Telunjuk tangan kanan mengarah ke bawah, jari tengah melengkung. Tangan kiri datar sebagai alas di bawahnya.',
+    'Q': 'Ibu jari dan telunjuk tangan kanan menjepit ke bawah seperti cubitan. Tangan kiri datar sebagai alas.',
+    'R': 'Telunjuk dan jari tengah menyilang pada kedua tangan, dua tangan bertemu di depan dada.',
+    'S': 'Dua tangan mengepal penuh, ibu jari menutup di atas buku jari. Dua kepalan bertumpuk atau berdekatan.',
+    'T': 'Ibu jari tangan kanan terselip di antara telunjuk & jari tengah (kepalan). Tangan kiri datar sebagai alas.',
+    'U': 'Telunjuk dan jari tengah rapat tegak pada kedua tangan, dua tangan sejajar berhadapan.',
+    'V': 'Telunjuk dan jari tengah membentuk "V" terbuka pada kedua tangan, dua tangan sejajar.',
+    'W': 'Telunjuk, jari tengah, jari manis terbuka (tiga jari) pada kedua tangan, dua tangan bertemu.',
+    'X': 'Telunjuk tangan kanan menekuk seperti kait. Tangan kiri menggenggam atau menjadi alas.',
+    'Y': 'Ibu jari dan kelingking terbuka (tanda "call me") pada kedua tangan, dua tangan saling menyentuh.',
+    'Z': 'Telunjuk tangan dominan menggambar huruf "Z" di udara (isyarat dinamis).',
+  };
+
+  static const Map<String, String> _sibiAlphabetReference = {
+    'A': 'Tangan mengepal, ibu jari di samping (tidak menutup kepalan), telapak menghadap ke depan.',
+    'B': 'Empat jari rapat tegak lurus, ibu jari ditekuk menempel ke telapak. Telapak menghadap depan.',
+    'C': 'Tangan membentuk huruf "C" — jari-jari melengkung, ibu jari dan jari lain membentuk setengah lingkaran.',
+    'D': 'Telunjuk tegak lurus, tiga jari lain bersentuhan dengan ibu jari membentuk lingkaran di pangkal.',
+    'E': 'Empat jari ditekuk ke dalam menyentuh ibu jari yang ditekuk, membentuk kepalan longgar.',
+    'F': 'Telunjuk dan ibu jari bersentuhan membentuk lingkaran (OK sign), tiga jari lain tegak.',
+    'G': 'Telunjuk dan ibu jari sejajar mengarah ke samping, jari lain mengepal.',
+    'H': 'Telunjuk dan jari tengah rapat mengarah ke samping horizontal, jari lain mengepal.',
+    'I': 'Kelingking tegak lurus ke atas, jari lain mengepal, ibu jari menutup jari lain.',
+    'K': 'Telunjuk tegak, jari tengah miring 45°, ibu jari menyentuh pangkal jari tengah.',
+    'L': 'Telunjuk tegak dan ibu jari horizontal membentuk sudut siku-siku "L", jari lain mengepal.',
+    'M': 'Ibu jari terselip di bawah tiga jari (telunjuk, tengah, manis) yang ditekuk ke bawah.',
+    'N': 'Ibu jari terselip di bawah dua jari (telunjuk, tengah) yang ditekuk ke bawah.',
+    'O': 'Semua jari melengkung membentuk lingkaran "O" bersama ibu jari.',
+    'P': 'Seperti "K" tapi mengarah ke bawah — telunjuk dan jari tengah ke bawah, ibu jari di antaranya.',
+    'Q': 'Telunjuk dan ibu jari sejajar mengarah ke bawah, jari lain mengepal.',
+    'R': 'Telunjuk dan jari tengah bersilangan tegak, jari lain mengepal.',
+    'S': 'Kepalan penuh dengan ibu jari menutup di depan buku jari.',
+    'T': 'Ibu jari terselip di antara telunjuk dan jari tengah pada kepalan.',
+    'U': 'Telunjuk dan jari tengah rapat tegak lurus, jari lain mengepal.',
+    'V': 'Telunjuk dan jari tengah membentuk "V" terbuka, jari lain mengepal.',
+    'W': 'Telunjuk, jari tengah, jari manis terbuka (tiga jari tegak), ibu jari dan kelingking bertemu.',
+    'X': 'Telunjuk ditekuk membentuk kait, jari lain mengepal.',
+    'Y': 'Ibu jari dan kelingking terbuka, tiga jari tengah mengepal (tanda "call me").',
+  };
+
+  String _referenceFor(String label, String mode) {
+    final upper = label.toUpperCase();
+    if (mode == 'sibi') {
+      return _sibiAlphabetReference[upper] ?? '(referensi tidak tersedia — evaluasi berdasarkan bentuk umum huruf ini)';
+    }
+    if (mode == 'bisindo_alfabet') {
+      return _bisindoAlphabetReference[upper] ?? '(referensi tidak tersedia)';
+    }
+    // bisindo_kata — deskripsi kata BISINDO umum
+    return _bisindoWordReference[upper] ?? '(referensi kata tidak tersedia — evaluasi dari foto secara umum)';
+  }
+
+  static const Map<String, String> _bisindoWordReference = {
+    'SAYA': 'Telunjuk tangan dominan menunjuk ke dada sendiri.',
+    'MAAF': 'Telapak tangan dominan diusapkan melingkar di dada (area jantung).',
+    'TERIMA_KASIH': 'Ujung jari tangan dominan menyentuh dagu lalu digerakkan ke depan menjauh dari wajah.',
+    'TULI': 'Telunjuk menyentuh telinga, lalu menyentuh mulut (atau sebaliknya) — menandakan tidak dengar & tidak bicara lisan.',
+    'DENGAR': 'Telunjuk dan ibu jari membuka-menutup di sisi telinga.',
+    'RUMAH': 'Kedua tangan miring saling bertemu di atas membentuk atap, lalu ditarik turun membentuk dinding.',
+  };
+
+  static const _vocabularyHelperPrompt = '''
+Kamu asisten yang menjelaskan kosakata Bahasa Indonesia kepada teman Tuli.
+Gunakan kalimat sangat sederhana, pendek, dan jelas. Hindari istilah asing.
+Jika katanya istilah teknis (hukum, keuangan, medis), beri analogi sehari-hari.
+
+Format jawaban (wajib):
+Arti: [1 kalimat singkat]
+Contoh: [1 kalimat contoh penggunaan sehari-hari]
+
+Jangan tambahkan kalimat lain di luar format itu.
+''';
+
   static const _simplifySystemPrompt = '''
 Kamu membantu orang Tuli memahami ucapan orang dengar.
 Sederhanakan kalimat berikut: hapus kata filler (eh, um, uh, jadi, gitu, kan),
@@ -387,11 +515,176 @@ Jawab HANYA dengan teks transkripsi, tanpa penjelasan atau komentar.
     }
   }
 
+  /// Contextual Empathy (bullet points) — multi-tip untuk orang dengar.
+  /// Return list of 2-4 tips singkat yang bisa ditampilkan sebagai bullet di UI.
+  Future<List<String>> getEmpathyTips(String sentence) async {
+    if (sentence.trim().isEmpty) return const [];
+    if (!_isLoaded || _model == null) return const [];
+
+    final raw = await _infer(_empathyTipsPrompt, sentence);
+    if (raw == null || raw.isEmpty) return const [];
+
+    // Parse bullet lines: "- tip text"
+    final tips = <String>[];
+    for (final rawLine in raw.split('\n')) {
+      var line = rawLine.trim();
+      if (line.isEmpty) continue;
+      // Strip bullet markers (-, *, •, 1., 1))
+      line = line.replaceFirst(
+          RegExp(r'^[\-\*•]\s+|^\d+[\.\)]\s+'), '');
+      if (line.isEmpty) continue;
+      tips.add(line);
+    }
+    debugPrint('[GemmaService] empathyTips: ${tips.length} bullets');
+    return tips.take(4).toList();
+  }
+
+  /// Gemma 4 Vision — Sign Coach. Evaluasi foto tangan pengguna dan berikan tips.
+  ///
+  /// [imagePath] — absolute path ke JPEG/PNG hasil CameraController.takePicture.
+  /// [targetLabel] — huruf/kata yang seharusnya diperagakan (mis. "A", "TERIMA_KASIH").
+  /// [detectedLabel] — hasil prediksi CNN (null jika tidak terdeteksi).
+  /// [mode] — "sibi" | "bisindo_alfabet" | "bisindo_kata" untuk konteks prompt.
+  /// [attemptCount] — percobaan ke-berapa untuk target yang sama (mulai dari 1).
+  ///   Dipakai Gemma untuk menyesuaikan tone (makin banyak gagal → makin menyemangati).
+  Future<String?> reviewSignImage({
+    required String imagePath,
+    required String targetLabel,
+    String? detectedLabel,
+    String mode = 'bisindo_alfabet',
+    int attemptCount = 1,
+  }) async {
+    if (!_isLoaded || _model == null) return null;
+    final file = File(imagePath);
+    if (!await file.exists()) {
+      debugPrint('[GemmaService] reviewSignImage: file not found $imagePath');
+      return null;
+    }
+
+    final modeLabel = switch (mode) {
+      'sibi' => 'SIBI (1 tangan)',
+      'bisindo_kata' => 'BISINDO (kata/gerakan, 2 tangan)',
+      _ => 'BISINDO (alfabet, 2 tangan)',
+    };
+
+    final isCorrect = detectedLabel != null &&
+        detectedLabel.toUpperCase() == targetLabel.toUpperCase();
+    final detectionLine = detectedLabel == null
+        ? 'Hasil CNN: tangan belum terdeteksi dengan jelas.'
+        : (isCorrect
+            ? 'Hasil CNN: BENAR (terdeteksi "$detectedLabel", sesuai target).'
+            : 'Hasil CNN: SALAH (terdeteksi "$detectedLabel", target seharusnya "$targetLabel").');
+
+    final reference = _referenceFor(targetLabel, mode);
+
+    String attemptLine;
+    if (attemptCount <= 1) {
+      attemptLine = 'Ini percobaan pertama.';
+    } else if (attemptCount == 2) {
+      attemptLine = 'Ini percobaan ke-2. Tetap rileks.';
+    } else {
+      attemptLine = 'Ini percobaan ke-$attemptCount. Pengguna sudah mencoba berulang — beri dorongan positif.';
+    }
+
+    final userMessage = '''
+Mode: $modeLabel
+Target: $targetLabel
+$attemptLine
+
+Referensi bentuk "$targetLabel" yang BENAR:
+$reference
+
+$detectionLine
+
+Bandingkan foto tangan pengguna dengan referensi di atas. Beri evaluasi singkat (maks. 2 kalimat) dalam Bahasa Indonesia.
+''';
+
+    try {
+      _model!.reset();
+      debugPrint('[GemmaService] reviewSignImage: target=$targetLabel detected=$detectedLabel img=$imagePath');
+
+      final response = await _model!.complete(
+        [
+          ChatMessage(role: 'system', content: _visionCoachSystemPrompt),
+          ChatMessage(
+            role: 'user',
+            content: userMessage,
+            images: [file.absolute.path],
+          ),
+        ],
+        maxTokens: 120,
+        temperature: 0.4,
+        stopSequences: ['\n\n\n'],
+      );
+
+      if (response.success && response.text.isNotEmpty) {
+        final cleaned = _cleanResponse(response.text);
+        debugPrint('[GemmaService] reviewSignImage OK: ${cleaned.length} chars, '
+            '${response.decodeTps.toStringAsFixed(1)} tok/s, '
+            '${response.totalTimeMs.toStringAsFixed(0)}ms');
+        return cleaned;
+      }
+      debugPrint('[GemmaService] reviewSignImage failed: ${response.error}');
+      return null;
+    } catch (e) {
+      debugPrint('[GemmaService] reviewSignImage exception: $e');
+      return null;
+    }
+  }
+
+  /// Deaf Vocabulary Helper — jelaskan kata/frasa dengan bahasa sederhana.
+  /// Return VocabularyExplanation(meaning, example) atau null jika gagal.
+  Future<VocabularyExplanation?> explainVocabulary(String word) async {
+    final q = word.trim();
+    if (q.isEmpty) return null;
+    if (!_isLoaded || _model == null) return null;
+
+    final raw = await _infer(_vocabularyHelperPrompt, q);
+    if (raw == null || raw.isEmpty) return null;
+
+    String? meaning;
+    String? example;
+    for (final rawLine in raw.split('\n')) {
+      final line = rawLine.trim();
+      if (line.isEmpty) continue;
+      final lower = line.toLowerCase();
+      if (lower.startsWith('arti:')) {
+        meaning = line.substring(line.indexOf(':') + 1).trim();
+      } else if (lower.startsWith('contoh:')) {
+        example = line.substring(line.indexOf(':') + 1).trim();
+      }
+    }
+
+    // Fallback: kalau format tidak pas, taruh semuanya ke meaning.
+    if (meaning == null || meaning.isEmpty) {
+      meaning = raw.trim();
+    }
+
+    return VocabularyExplanation(
+      word: q,
+      meaning: meaning,
+      example: example,
+    );
+  }
+
   Future<void> dispose() async {
     await _model?.dispose();
     _model = null;
     _isLoaded = false;
   }
+}
+
+/// Hasil penjelasan kosakata untuk fitur Deaf Vocabulary Helper.
+class VocabularyExplanation {
+  final String word;
+  final String meaning;
+  final String? example;
+
+  const VocabularyExplanation({
+    required this.word,
+    required this.meaning,
+    this.example,
+  });
 }
 
 // ============================================================
