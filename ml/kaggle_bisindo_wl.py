@@ -100,7 +100,7 @@ TASK_DIR   = Path("/kaggle/working")  # untuk simpan .task files
 
 # ── Constants ─────────────────────────────────────────────────────────────────
 SEQUENCE_LEN = 30
-FEATURE_DIM  = 98    # 42+42+14 (hands + 7 pose anchors: nose+shoulder+ear+elbow)
+FEATURE_DIM  = 100   # 42+42+14+2 (hands + 7 pose anchors + 2 hand-presence flags)
 
 # Pose landmark indices
 POSE_NOSE       = 0
@@ -179,7 +179,7 @@ def _anatomical_is_right(landmarks) -> bool:
 
 def extract_features_from_frame(hand_result, pose_result) -> np.ndarray:
     """
-    Satu frame MediaPipe → 98-float feature vector (nose-centered, RAW).
+    Satu frame MediaPipe → 100-float feature vector (nose-centered, RAW).
     Mendukung KEDUA API: solutions (0.9.x) dan Tasks (0.10.x).
 
     Handedness: pakai _anatomical_is_right (API-agnostic) agar konsisten
@@ -195,9 +195,15 @@ def extract_features_from_frame(hand_result, pose_result) -> np.ndarray:
       [92:94]  right ear nose-centered
       [94:96]  left elbow nose-centered
       [96:98]  right elbow nose-centered
+      [98]     has_right_hand (1.0 jika terdeteksi, else NaN)
+      [99]     has_left_hand  (1.0 jika terdeteksi, else NaN)
     """
     out = np.full(FEATURE_DIM, np.nan, dtype=np.float32)
     nose_x, nose_y = 0.5, 0.5
+
+    # Track which hands are detected
+    has_right = False
+    has_left  = False
 
     # ── Solutions API (mediapipe 0.9.x) ──────────────────────────────────────
     if MP_API in ("solutions", "solutions_alt"):
@@ -208,14 +214,17 @@ def extract_features_from_frame(hand_result, pose_result) -> np.ndarray:
                 out[84 + i*2]     = lm[idx].x - nose_x
                 out[84 + i*2 + 1] = lm[idx].y - nose_y
 
-        if hand_result.multi_hand_landmarks is None:
-            return out
-        for hand_lm in hand_result.multi_hand_landmarks:
-            is_right = _anatomical_is_right(hand_lm.landmark)
-            base = 0 if is_right else 42
-            for j, lm in enumerate(hand_lm.landmark):
-                out[base + j*2]     = lm.x - nose_x
-                out[base + j*2 + 1] = lm.y - nose_y
+        if hand_result.multi_hand_landmarks is not None:
+            for hand_lm in hand_result.multi_hand_landmarks:
+                is_right = _anatomical_is_right(hand_lm.landmark)
+                base = 0 if is_right else 42
+                if is_right:
+                    has_right = True
+                else:
+                    has_left = True
+                for j, lm in enumerate(hand_lm.landmark):
+                    out[base + j*2]     = lm.x - nose_x
+                    out[base + j*2 + 1] = lm.y - nose_y
 
     # ── Tasks API (mediapipe 0.10+) ───────────────────────────────────────────
     else:
@@ -226,14 +235,24 @@ def extract_features_from_frame(hand_result, pose_result) -> np.ndarray:
                 out[84 + i*2]     = lm[idx].x - nose_x
                 out[84 + i*2 + 1] = lm[idx].y - nose_y
 
-        if not hand_result.hand_landmarks:
-            return out
-        for hand_lm in hand_result.hand_landmarks:
-            is_right = _anatomical_is_right(hand_lm)
-            base = 0 if is_right else 42
-            for j, lm in enumerate(hand_lm):
-                out[base + j*2]     = lm.x - nose_x
-                out[base + j*2 + 1] = lm.y - nose_y
+        if hand_result.hand_landmarks:
+            for hand_lm in hand_result.hand_landmarks:
+                is_right = _anatomical_is_right(hand_lm)
+                base = 0 if is_right else 42
+                if is_right:
+                    has_right = True
+                else:
+                    has_left = True
+                for j, lm in enumerate(hand_lm):
+                    out[base + j*2]     = lm.x - nose_x
+                    out[base + j*2 + 1] = lm.y - nose_y
+
+    # ── Hand presence flags ──────────────────────────────────────────────────
+    # Explicitly encode which hands are visible. After std-normalization,
+    # NaN→0 is ambiguous (model can't tell "no hand" from "hand at origin").
+    # These flags give the model a direct 1/0 signal.
+    out[98] = 1.0 if has_right else np.nan
+    out[99] = 1.0 if has_left  else np.nan
 
     return out
 
@@ -1415,8 +1434,8 @@ def train_model(
 
 def convert_to_tflite(model=None, X_repr=None):
     """
-    Konversi ke TFLite dengan int8 quantization.
-    Output: float32 input → int8 weights → float32 output
+    Konversi ke TFLite — float32 (tanpa quantization).
+    Konsisten dengan alphabet models; ukuran kecil, akurasi terjaga.
     """
     import tensorflow as tf
 
@@ -1424,27 +1443,8 @@ def convert_to_tflite(model=None, X_repr=None):
         model = tf.keras.models.load_model(str(MODEL_OUT))
 
     converter = tf.lite.TFLiteConverter.from_keras_model(model)
-
-    if X_repr is not None:
-        # Pastikan sudah berupa derivatives (294-dim)
-        if X_repr.shape[-1] == FEATURE_DIM:
-            X_repr = add_temporal_derivatives(X_repr)
-        X_repr = np.nan_to_num(X_repr, nan=0.0)
-
-        def rep_gen():
-            for i in range(min(200, len(X_repr))):
-                yield [X_repr[i:i+1].astype(np.float32)]
-
-        converter.optimizations          = [tf.lite.Optimize.DEFAULT]
-        converter.representative_dataset = rep_gen
-        converter.target_spec.supported_ops = [
-            tf.lite.OpsSet.TFLITE_BUILTINS_INT8]
-        converter.inference_input_type  = tf.float32
-        converter.inference_output_type = tf.float32
-        print("  Mode: int8 quantization (float32 I/O)")
-    else:
-        converter.optimizations = [tf.lite.Optimize.DEFAULT]
-        print("  Mode: default optimization")
+    # Float32 only — no quantization
+    print("  Mode: float32 (no quantization)")
 
     tflite_model = converter.convert()
     with open(TFLITE_OUT, "wb") as f:
@@ -1455,9 +1455,7 @@ def convert_to_tflite(model=None, X_repr=None):
     print(f"\n  📱  Deploy ke Flutter:")
     print(f"     1. Copy ke assets/models/bisindo_wl_model.tflite")
     print(f"     2. Copy ke assets/models/bisindo_wl_labels.json")
-    print(f"     3. Update mediapipe_service.dart → 98-dim + std normalization")
-    print(f"     4. Update gesture_service.dart   → temporal derivatives (294-dim)")
-    print(f"     5. Model input: ({SEQUENCE_LEN}, {FEATURE_DIM*3}) float32")
+    print(f"     3. Model input: ({SEQUENCE_LEN}, {FEATURE_DIM*3}) float32")
 
 
 # ═════════════════════════════════════════════════════════════════════════════
@@ -1504,7 +1502,7 @@ def convert_to_tflite(model=None, X_repr=None):
 # ┌─────────────────────────────────────────────────────────┐
 # │ Cell 5 — TFLite untuk Android                           │
 # ├─────────────────────────────────────────────────────────┤
-# │ convert_to_tflite(model, X_repr=X_tr[:100])             │
+# │ convert_to_tflite(model)                                │
 # └─────────────────────────────────────────────────────────┘
 # ═════════════════════════════════════════════════════════════════════════════
 

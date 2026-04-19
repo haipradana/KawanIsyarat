@@ -102,11 +102,15 @@ class _CommDeafToHearingScreenState
       final previewW = previewSize?.width ?? image.width.toDouble();
       final previewH = previewSize?.height ?? image.height.toDouble();
 
+      final isFront = _cameraController!.description.lensDirection ==
+          CameraLensDirection.front;
+
       notifier.onCameraFrame(
         image,
         previewW,
         previewH,
         sensorOrientation: _sensorOrientation,
+        isFrontCamera: isFront,
       );
     });
   }
@@ -133,11 +137,16 @@ class _CommDeafToHearingScreenState
         physics: BouncingScrollPhysics(),
         child: Column(
           children: [
+            // ── Mode toggle ─────────────────────────────────────────────
+            _buildModeToggle(state),
+            SizedBox(height: AppSpacing.md),
             // Camera full-width tanpa padding samping
             _buildCameraView(state)
                 .animate()
                 .fadeIn(duration: 400.ms),
-            if (state.isCapturing && state.modelInputFeatures.length >= 98)
+            if (state.isCapturing &&
+                state.detectionMode == DetectionMode.sign &&
+                state.modelInputFeatures.length >= 100)
               Padding(
                 padding: EdgeInsets.only(
                   top: AppSpacing.md,
@@ -265,49 +274,83 @@ class _CommDeafToHearingScreenState
                     ),
                   ),
                 ),
-              // Camera label
+              // Camera label (status dot + mode tag)
               Positioned(
                 top: 12,
                 left: 12,
-                child: Container(
-                  padding: EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: Colors.black.withOpacity(0.5),
-                    borderRadius: BorderRadius.circular(AppRadius.full),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Container(
-                        width: 6,
-                        height: 6,
-                        decoration: BoxDecoration(
-                          color: state.isRecordingSign
-                              ? Colors.red
-                              : state.isCapturing
-                                  ? AppColors.success
-                                  : (_isCameraReady ? Colors.blue : Colors.grey),
-                          shape: BoxShape.circle,
-                        ),
+                child: Row(
+                  children: [
+                    // Status pill (LIVE / REC / KAMERA)
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 10, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: Colors.black.withOpacity(0.5),
+                        borderRadius: BorderRadius.circular(AppRadius.full),
                       ),
-                      SizedBox(width: 6),
-                      Text(
-                        state.isRecordingSign
-                            ? 'REC ${state.bufferProgress}/30'
-                            : state.isCapturing
-                                ? 'LIVE'
-                                : (_isCameraReady ? 'KAMERA' : 'LOADING'),
-                        style: GoogleFonts.plusJakartaSans(
-                          fontSize: 10,
-                          fontWeight: FontWeight.w700,
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Container(
+                            width: 6,
+                            height: 6,
+                            decoration: BoxDecoration(
+                              color: state.isRecordingSign
+                                  ? Colors.red
+                                  : state.isCapturing
+                                      ? AppColors.success
+                                      : (_isCameraReady ? Colors.blue : Colors.grey),
+                              shape: BoxShape.circle,
+                            ),
+                          ),
+                          const SizedBox(width: 6),
+                          Text(
+                            state.isRecordingSign
+                                ? 'REC ${state.bufferProgress}/30'
+                                : state.isCapturing
+                                    ? 'LIVE'
+                                    : (_isCameraReady ? 'KAMERA' : 'LOADING'),
+                            style: GoogleFonts.plusJakartaSans(
+                              fontSize: 10,
+                              fontWeight: FontWeight.w700,
+                              color: Colors.white,
+                              letterSpacing: 1,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    // Mode tag (SIGN / SIBI / BISINDO)
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 8, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: AppColors.primary.withOpacity(0.85),
+                        borderRadius: BorderRadius.circular(AppRadius.full),
+                      ),
+                      child: Text(
+                        _modeBadgeText(state.detectionMode),
+                        style: GoogleFonts.jetBrainsMono(
+                          fontSize: 9,
+                          fontWeight: FontWeight.w800,
                           color: Colors.white,
-                          letterSpacing: 1,
+                          letterSpacing: 0.6,
                         ),
                       ),
-                    ],
-                  ),
+                    ),
+                  ],
                 ),
               ),
+              // Live alphabet letter overlay (big letter on camera)
+              if (state.isCapturing &&
+                  state.detectionMode != DetectionMode.sign &&
+                  state.currentAlphabetLetter != null)
+                Positioned(
+                  top: 12,
+                  right: 12,
+                  child: _buildLetterOverlay(state.currentAlphabetLetter!),
+                ),
               // Processing indicator
               if (state.isProcessing)
                 Center(
@@ -375,6 +418,39 @@ class _CommDeafToHearingScreenState
                       ),
                     ),
                   ),
+                ),
+              // ── Live alphabet letter overlay ──────────────────────────────
+              if (state.isCapturing &&
+                  state.detectionMode != DetectionMode.sign &&
+                  state.currentAlphabetLetter != null)
+                Positioned(
+                  bottom: 16,
+                  right: 16,
+                  child: Container(
+                    width: 56,
+                    height: 56,
+                    decoration: BoxDecoration(
+                      color: AppColors.primary.withOpacity(0.85),
+                      borderRadius: BorderRadius.circular(14),
+                      boxShadow: [
+                        BoxShadow(
+                          color: AppColors.primary.withOpacity(0.4),
+                          blurRadius: 12,
+                          spreadRadius: 2,
+                        ),
+                      ],
+                    ),
+                    alignment: Alignment.center,
+                    child: Text(
+                      state.currentAlphabetLetter!,
+                      style: GoogleFonts.robotoMono(
+                        fontSize: 28,
+                        fontWeight: FontWeight.w700,
+                        color: Colors.white,
+                      ),
+                    ),
+                  ).animate(onPlay: (c) => c.repeat(reverse: true))
+                    .scaleXY(begin: 0.95, end: 1.05, duration: 600.ms),
                 ),
             ],
           ),
@@ -470,6 +546,145 @@ class _CommDeafToHearingScreenState
     );
   }
 
+  String _modeBadgeText(DetectionMode mode) {
+    switch (mode) {
+      case DetectionMode.sign:
+        return 'SIGN';
+      case DetectionMode.sibiAlphabet:
+        return 'SIBI · 1H';
+      case DetectionMode.bisindoAlphabet:
+        return 'BISINDO · 2H';
+    }
+  }
+
+  /// Big animated letter overlay shown on the camera during alphabet mode.
+  Widget _buildLetterOverlay(String letter) {
+    return Container(
+      key: ValueKey('letter-$letter'),
+      width: 64,
+      height: 64,
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            AppColors.primary,
+            AppColors.primary.withOpacity(0.7),
+          ],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(AppRadius.lg),
+        boxShadow: [
+          BoxShadow(
+            color: AppColors.primary.withOpacity(0.4),
+            blurRadius: 16,
+            spreadRadius: 2,
+          ),
+        ],
+      ),
+      child: Center(
+        child: Text(
+          letter,
+          style: GoogleFonts.plusJakartaSans(
+            fontSize: 34,
+            fontWeight: FontWeight.w900,
+            color: Colors.white,
+            height: 1.0,
+          ),
+        ),
+      ),
+    ).animate().fadeIn(duration: 120.ms).scale(
+          begin: const Offset(0.8, 0.8),
+          end: const Offset(1.0, 1.0),
+          duration: 180.ms,
+          curve: Curves.easeOutBack,
+        );
+  }
+
+  /// Segmented toggle: SIGN | SIBI | BISINDO.
+  Widget _buildModeToggle(DeafToHearingState state) {
+    final notifier = ref.read(deafToHearingProvider.notifier);
+    return Padding(
+      padding: EdgeInsets.symmetric(horizontal: AppSpacing.xxl),
+      child: Container(
+        decoration: BoxDecoration(
+          color: AppColors.surfaceContainerHigh,
+          borderRadius: BorderRadius.circular(AppRadius.full),
+          border: Border.all(color: AppColors.outlineVariant),
+        ),
+        padding: EdgeInsets.all(3),
+        child: Row(
+          children: [
+            _buildModeTab(
+              label: 'SIGN',
+              icon: Icons.pan_tool_alt_rounded,
+              isActive: state.detectionMode == DetectionMode.sign,
+              onTap: () => notifier.switchDetectionMode(DetectionMode.sign),
+            ),
+            _buildModeTab(
+              label: 'SIBI',
+              icon: Icons.abc_rounded,
+              isActive: state.detectionMode == DetectionMode.sibiAlphabet,
+              onTap: () => notifier.switchDetectionMode(DetectionMode.sibiAlphabet),
+            ),
+            _buildModeTab(
+              label: 'BISINDO',
+              icon: Icons.sign_language_rounded,
+              isActive: state.detectionMode == DetectionMode.bisindoAlphabet,
+              onTap: () => notifier.switchDetectionMode(DetectionMode.bisindoAlphabet),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildModeTab({
+    required String label,
+    required IconData icon,
+    required bool isActive,
+    required VoidCallback onTap,
+  }) {
+    return Expanded(
+      child: GestureDetector(
+        onTap: onTap,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 200),
+          padding: EdgeInsets.symmetric(vertical: 10),
+          decoration: BoxDecoration(
+            color: isActive
+                ? AppColors.primary
+                : Colors.transparent,
+            borderRadius: BorderRadius.circular(AppRadius.full),
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(
+                icon,
+                size: 16,
+                color: isActive
+                    ? AppColors.onPrimary
+                    : AppColors.textSecondary,
+              ),
+              SizedBox(width: 6),
+              Text(
+                label,
+                style: GoogleFonts.plusJakartaSans(
+                  fontSize: 11,
+                  fontWeight: isActive ? FontWeight.w700 : FontWeight.w500,
+                  color: isActive
+                      ? AppColors.onPrimary
+                      : AppColors.textSecondary,
+                  letterSpacing: 0.8,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   /// Per-sign recording UI: start/stop session + record one sign per press.
   Widget _buildControls(DeafToHearingState state) {
     final notifier = ref.read(deafToHearingProvider.notifier);
@@ -522,100 +737,11 @@ class _CommDeafToHearingScreenState
           [
             SizedBox(height: AppSpacing.xl),
 
-            // ── Row 2: Record sign button with circular progress ─────────
-            // Tap to start recording, tap again to cancel.
-            // Auto-completes when 30 frames collected.
-            GestureDetector(
-              onTap: () {
-                if (state.isRecordingSign) {
-                  notifier.cancelSignRecording();
-                } else {
-                  notifier.startSignRecording();
-                }
-              },
-              child: Stack(
-                alignment: Alignment.center,
-                children: [
-                  // Circular progress ring
-                  SizedBox(
-                    width: 88,
-                    height: 88,
-                    child: CircularProgressIndicator(
-                      value: state.isRecordingSign ? progress : 0.0,
-                      strokeWidth: 4,
-                      backgroundColor: Colors.white.withOpacity(0.12),
-                      valueColor: AlwaysStoppedAnimation(
-                        state.isRecordingSign
-                            ? AppColors.primary
-                            : Colors.transparent,
-                      ),
-                    ),
-                  ),
-                  // Inner button
-                  AnimatedContainer(
-                    duration: const Duration(milliseconds: 120),
-                    width: state.isRecordingSign ? 72 : 76,
-                    height: state.isRecordingSign ? 72 : 76,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: state.isRecordingSign
-                          ? AppColors.primary
-                          : AppColors.primary.withOpacity(0.15),
-                      border: Border.all(
-                        color: AppColors.primary.withOpacity(0.6),
-                        width: 2,
-                      ),
-                      boxShadow: state.isRecordingSign
-                          ? [
-                              BoxShadow(
-                                color: AppColors.primary.withOpacity(0.35),
-                                blurRadius: 18,
-                                spreadRadius: 4,
-                              )
-                            ]
-                          : [],
-                    ),
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(
-                          state.isRecordingSign
-                              ? Icons.fiber_manual_record
-                              : Icons.pan_tool_alt_rounded,
-                          color: state.isRecordingSign
-                              ? Colors.white
-                              : AppColors.primary,
-                          size: 22,
-                        ),
-                        if (state.isRecordingSign)
-                          Text(
-                            '${state.bufferProgress}/30',
-                            style: GoogleFonts.robotoMono(
-                              fontSize: 10,
-                              color: Colors.white70,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
-
-            SizedBox(height: AppSpacing.md),
-            Text(
-              state.isRecordingSign
-                  ? 'Merekam... ${state.bufferProgress}/30 frame'
-                  : 'Ketuk untuk rekam satu isyarat',
-              style: GoogleFonts.beVietnamPro(
-                fontSize: 12,
-                color: Colors.white.withOpacity(state.isRecordingSign ? 0.9 : 0.5),
-                fontWeight: state.isRecordingSign
-                    ? FontWeight.w600
-                    : FontWeight.w400,
-              ),
-            ),
+            // ── Mode-specific controls ────────────────────────────────────
+            if (state.detectionMode == DetectionMode.sign)
+              _buildBisindoRecordButton(state, notifier, progress)
+            else
+              _buildAlphabetControls(state, notifier),
 
             // ── Row 3: Send to AI ────────────────────────────────────────
             if (state.currentGloss.isNotEmpty && !state.isProcessing)
@@ -627,11 +753,12 @@ class _CommDeafToHearingScreenState
                     onPressed: () => notifier.sendToAI(),
                     icon: Icon(Icons.auto_awesome_rounded, size: 18),
                     label: Text(
-                      'Kirim ke AI  [${state.currentGloss.map((w) => w.toUpperCase()).join(" | ")}]',
+                      'Kirim ke AI  [${_formatGlossForButton(state)}]',
                       style: GoogleFonts.beVietnamPro(
                         fontSize: 13,
                         fontWeight: FontWeight.w600,
                       ),
+                      overflow: TextOverflow.ellipsis,
                     ),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: const Color(0xFF6B48FF),
@@ -651,6 +778,265 @@ class _CommDeafToHearingScreenState
         ),
       ],
     );
+  }
+
+  /// BISINDO mode: tap-to-record sign button with circular progress.
+  Widget _buildBisindoRecordButton(
+      DeafToHearingState state, DeafToHearingNotifier notifier, double progress) {
+    return Column(
+      children: [
+        GestureDetector(
+          onTap: () {
+            if (state.isRecordingSign) {
+              notifier.cancelSignRecording();
+            } else {
+              notifier.startSignRecording();
+            }
+          },
+          child: Stack(
+            alignment: Alignment.center,
+            children: [
+              SizedBox(
+                width: 88,
+                height: 88,
+                child: CircularProgressIndicator(
+                  value: state.isRecordingSign ? progress : 0.0,
+                  strokeWidth: 4,
+                  backgroundColor: Colors.white.withOpacity(0.12),
+                  valueColor: AlwaysStoppedAnimation(
+                    state.isRecordingSign
+                        ? AppColors.primary
+                        : Colors.transparent,
+                  ),
+                ),
+              ),
+              AnimatedContainer(
+                duration: const Duration(milliseconds: 120),
+                width: state.isRecordingSign ? 72 : 76,
+                height: state.isRecordingSign ? 72 : 76,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: state.isRecordingSign
+                      ? AppColors.primary
+                      : AppColors.primary.withOpacity(0.15),
+                  border: Border.all(
+                    color: AppColors.primary.withOpacity(0.6),
+                    width: 2,
+                  ),
+                  boxShadow: state.isRecordingSign
+                      ? [
+                          BoxShadow(
+                            color: AppColors.primary.withOpacity(0.35),
+                            blurRadius: 18,
+                            spreadRadius: 4,
+                          )
+                        ]
+                      : [],
+                ),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(
+                      state.isRecordingSign
+                          ? Icons.fiber_manual_record
+                          : Icons.pan_tool_alt_rounded,
+                      color: state.isRecordingSign
+                          ? Colors.white
+                          : AppColors.primary,
+                      size: 22,
+                    ),
+                    if (state.isRecordingSign)
+                      Text(
+                        '${state.bufferProgress}/30',
+                        style: GoogleFonts.robotoMono(
+                          fontSize: 10,
+                          color: Colors.white70,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+        SizedBox(height: AppSpacing.md),
+        Text(
+          state.isRecordingSign
+              ? 'Merekam... ${state.bufferProgress}/30 frame'
+              : 'Ketuk untuk rekam satu isyarat',
+          style: GoogleFonts.beVietnamPro(
+            fontSize: 12,
+            color: state.isRecordingSign
+                ? AppColors.primary
+                : AppColors.textSecondary,
+            fontWeight: state.isRecordingSign
+                ? FontWeight.w600
+                : FontWeight.w400,
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// Alphabet mode: auto-detect (no manual tap), show live letter + add space button.
+  Widget _buildAlphabetControls(
+      DeafToHearingState state, DeafToHearingNotifier notifier) {
+    final isBisindo = state.detectionMode == DetectionMode.bisindoAlphabet;
+    final hasLetter = state.currentAlphabetLetter != null;
+
+    return Column(
+      children: [
+        // ── Live detection card ─────────────────────────────────────────
+        AnimatedContainer(
+          duration: const Duration(milliseconds: 220),
+          width: double.infinity,
+          padding: EdgeInsets.symmetric(
+              horizontal: AppSpacing.lg, vertical: AppSpacing.md),
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              colors: hasLetter
+                  ? [
+                      AppColors.primary.withOpacity(0.18),
+                      AppColors.primary.withOpacity(0.06),
+                    ]
+                  : [
+                      AppColors.surfaceContainerLow,
+                      AppColors.surfaceContainerLow,
+                    ],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+            borderRadius: BorderRadius.circular(AppRadius.lg),
+            border: Border.all(
+              color: hasLetter
+                  ? AppColors.primary.withOpacity(0.5)
+                  : AppColors.outlineVariant,
+              width: hasLetter ? 1.5 : 1,
+            ),
+          ),
+          child: Row(
+            children: [
+              // Animated letter chip
+              AnimatedSwitcher(
+                duration: const Duration(milliseconds: 200),
+                transitionBuilder: (child, anim) => ScaleTransition(
+                  scale: anim,
+                  child: FadeTransition(opacity: anim, child: child),
+                ),
+                child: Container(
+                  key: ValueKey(state.currentAlphabetLetter ?? '_'),
+                  width: 48,
+                  height: 48,
+                  decoration: BoxDecoration(
+                    color: hasLetter
+                        ? AppColors.primary
+                        : AppColors.outlineVariant.withOpacity(0.3),
+                    borderRadius: BorderRadius.circular(AppRadius.md),
+                  ),
+                  child: Center(
+                    child: hasLetter
+                        ? Text(
+                            state.currentAlphabetLetter!,
+                            style: GoogleFonts.plusJakartaSans(
+                              fontSize: 26,
+                              fontWeight: FontWeight.w900,
+                              color: Colors.white,
+                              height: 1.0,
+                            ),
+                          )
+                        : Icon(
+                            Icons.front_hand_outlined,
+                            color: AppColors.outlineVariant,
+                            size: 22,
+                          ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      hasLetter ? 'Mendeteksi huruf' : 'Menunggu isyarat',
+                      style: GoogleFonts.beVietnamPro(
+                        fontSize: 11,
+                        color: AppColors.textSecondary,
+                        fontWeight: FontWeight.w500,
+                        letterSpacing: 0.4,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      hasLetter
+                          ? 'Tahan posisi… auto-simpan'
+                          : isBisindo
+                              ? 'Tunjukkan 2 tangan ke kamera'
+                              : 'Tunjukkan 1 tangan ke kamera',
+                      style: GoogleFonts.beVietnamPro(
+                        fontSize: 13,
+                        color: AppColors.textPrimary,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+
+        SizedBox(height: AppSpacing.md),
+
+        // ── Space + tip row ─────────────────────────────────────────────
+        Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            _ControlButton(
+              icon: Icons.space_bar_rounded,
+              label: 'SPASI',
+              color: AppColors.primary,
+              onTap: () => notifier.addSpace(),
+            ),
+          ],
+        ),
+
+        SizedBox(height: AppSpacing.sm),
+
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+          decoration: BoxDecoration(
+            color: AppColors.surfaceContainerLow,
+            borderRadius: BorderRadius.circular(AppRadius.full),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.timer_outlined,
+                  size: 12, color: AppColors.textSecondary),
+              const SizedBox(width: 4),
+              Text(
+                'Auto-simpan setelah stabil ~1.5 detik',
+                style: GoogleFonts.beVietnamPro(
+                  fontSize: 10,
+                  color: AppColors.textSecondary,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  String _formatGlossForButton(DeafToHearingState state) {
+    if (state.detectionMode != DetectionMode.sign) {
+      // In alphabet mode (SIBI/BISINDO), join letters into word(s)
+      return state.currentGloss.join('');
+    }
+    return state.currentGloss.map((w) => w.toUpperCase()).join(' | ');
   }
 
   void _handleNavTap(BuildContext context, int index) {

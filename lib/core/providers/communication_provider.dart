@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:camera/camera.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path_provider/path_provider.dart';
@@ -10,8 +11,16 @@ import '../services/gemma_service.dart';
 import '../services/stt_service.dart';
 import '../services/model_manager.dart';
 import '../services/tts_service.dart';
+import '../services/sibi_alphabet_service.dart';
+import '../services/bisindo_alphabet_service.dart';
 import '../../shared/models/conversation_entry.dart';
 import '../../shared/models/user_persona.dart';
+
+/// Detection modes for sign-to-text.
+///   sign          — BISINDO gesture recognition (LSTM, 30-frame recording)
+///   sibiAlphabet  — SIBI alphabet (1 hand, real-time)
+///   bisindoAlphabet — BISINDO alphabet (2 hands, real-time)
+enum DetectionMode { sign, sibiAlphabet, bisindoAlphabet }
 
 // ---- Deaf to Hearing State ----
 
@@ -28,6 +37,10 @@ class DeafToHearingState {
   final int bufferProgress;
   /// True while recording one sign (0→30 frames).
   final bool isRecordingSign;
+  /// Current detection mode: sign gestures, SIBI alphabet, or BISINDO alphabet.
+  final DetectionMode detectionMode;
+  /// Live alphabet letter currently detected (alphabet mode only).
+  final String? currentAlphabetLetter;
 
   const DeafToHearingState({
     this.currentGloss = const [],
@@ -39,6 +52,8 @@ class DeafToHearingState {
     this.errorMessage,
     this.bufferProgress = 0,
     this.isRecordingSign = false,
+    this.detectionMode = DetectionMode.sign,
+    this.currentAlphabetLetter,
   });
 
   DeafToHearingState copyWith({
@@ -52,6 +67,9 @@ class DeafToHearingState {
     bool clearAiSuggestion = false,
     int? bufferProgress,
     bool? isRecordingSign,
+    DetectionMode? detectionMode,
+    String? currentAlphabetLetter,
+    bool clearAlphabetLetter = false,
   }) {
     return DeafToHearingState(
       currentGloss: currentGloss ?? this.currentGloss,
@@ -63,6 +81,9 @@ class DeafToHearingState {
       errorMessage: errorMessage,
       bufferProgress: bufferProgress ?? this.bufferProgress,
       isRecordingSign: isRecordingSign ?? this.isRecordingSign,
+      detectionMode: detectionMode ?? this.detectionMode,
+      currentAlphabetLetter:
+          clearAlphabetLetter ? null : (currentAlphabetLetter ?? this.currentAlphabetLetter),
     );
   }
 }
@@ -78,39 +99,151 @@ class DeafToHearingNotifier extends StateNotifier<DeafToHearingState> {
   final _gestureService = GestureService();
   final _gemmaService = GemmaService();
   final _ttsService = TtsService();
+  final _sibiService = SibiAlphabetService();
+  final _bisindoAbcService = BisindoAlphabetService();
 
   bool _isProcessingFrame = false;
   bool _isRefining = false;
+  bool _isFrontCamera = true;
 
-  /// Initialize gesture services (model + MediaPipe).
+  // Alphabet mode: majority vote over last N frames before committing a letter.
+  final _alphabetVoteBuffer = <String?>[];
+  static const _voteWindowSize = 15;
+  static const _voteThreshold = 9; // 9/15 frames must agree
+  DateTime? _lastLetterCommitTime;
+  static const _commitCooldown = Duration(milliseconds: 1500);
+
+  /// Initialize gesture services (model + MediaPipe) and alphabet services.
   Future<void> initializeServices() async {
     debugPrint('[DeafToHearing] Initializing GestureService...');
     try {
       await _gestureService.initialize();
-      debugPrint('[DeafToHearing] Model loaded: ${_gestureService.isModelLoaded}');
+      debugPrint('[DeafToHearing] LSTM loaded: ${_gestureService.isModelLoaded}');
     } catch (e, st) {
-      debugPrint('[DeafToHearing] initializeServices FAILED: $e\n$st');
+      debugPrint('[DeafToHearing] GestureService FAILED: $e\n$st');
+    }
+
+    debugPrint('[DeafToHearing] Initializing SibiAlphabetService...');
+    try {
+      await _sibiService.initialize();
+      debugPrint('[DeafToHearing] SIBI loaded: ${_sibiService.isLoaded}');
+    } catch (e, st) {
+      debugPrint('[DeafToHearing] SibiAlphabetService FAILED: $e\n$st');
+    }
+
+    debugPrint('[DeafToHearing] Initializing BisindoAlphabetService...');
+    try {
+      await _bisindoAbcService.initialize();
+      debugPrint('[DeafToHearing] BISINDO-ABC loaded: ${_bisindoAbcService.isLoaded}');
+    } catch (e, st) {
+      debugPrint('[DeafToHearing] BisindoAlphabetService FAILED: $e\n$st');
     }
   }
 
-  /// Called every camera frame. Only runs MediaPipe when capturing.
+  /// Switch between sign gesture mode, SIBI alphabet, or BISINDO alphabet.
+  void switchDetectionMode(DetectionMode mode) {
+    if (state.detectionMode == mode) return;
+    if (state.isRecordingSign) {
+      _gestureService.cancelSignRecording();
+    }
+    _alphabetVoteBuffer.clear();
+    _lastLetterCommitTime = null;
+    state = state.copyWith(
+      detectionMode: mode,
+      isRecordingSign: false,
+      bufferProgress: 0,
+      clearAlphabetLetter: true,
+      errorMessage: null,
+    );
+    debugPrint('[DeafToHearing] Switched to ${mode.name} mode');
+  }
+
+  /// Whether current mode is any alphabet mode.
+  bool get _isAlphabetMode =>
+      state.detectionMode == DetectionMode.sibiAlphabet ||
+      state.detectionMode == DetectionMode.bisindoAlphabet;
+
+  /// Called every camera frame. Only runs when capturing.
   void onCameraFrame(dynamic cameraImage, double previewW, double previewH,
-      {int sensorOrientation = 90}) {
+      {int sensorOrientation = 90, bool isFrontCamera = true}) {
     if (!state.isCapturing || _isProcessingFrame) return;
+    _isFrontCamera = isFrontCamera;
     _isProcessingFrame = true;
 
-    _gestureService
-        .addFrameFromCameraAsync(cameraImage, sensorOrientation)
-        .then((_) {
-      if (!mounted) return;
-      _isProcessingFrame = false;
-      // Update debug panel with latest 98-dim features
-      final modelInput = _gestureService.lastRawFeaturesForDebug;
-      state = state.copyWith(modelInputFeatures: modelInput);
-    }).catchError((e) {
-      _isProcessingFrame = false;
-      debugPrint('[DeafToHearing] Frame error: $e');
-    });
+    if (_isAlphabetMode) {
+      _processAlphabetFrame(cameraImage as CameraImage, sensorOrientation);
+    } else {
+      _gestureService
+          .addFrameFromCameraAsync(cameraImage, sensorOrientation)
+          .then((_) {
+        if (!mounted) return;
+        _isProcessingFrame = false;
+        // Update debug panel with latest 98-dim features
+        final modelInput = _gestureService.lastRawFeaturesForDebug;
+        state = state.copyWith(modelInputFeatures: modelInput);
+      }).catchError((e) {
+        _isProcessingFrame = false;
+        debugPrint('[DeafToHearing] Frame error: $e');
+      });
+    }
+  }
+
+  void _processAlphabetFrame(CameraImage frame, int sensorOrientation) {
+    // Route to correct alphabet service based on mode
+    String? detectedLetter;
+    if (state.detectionMode == DetectionMode.sibiAlphabet) {
+      final result = _sibiService.detectFromCameraImage(
+          frame, sensorOrientation, _isFrontCamera);
+      detectedLetter = result?.letter;
+    } else {
+      final result = _bisindoAbcService.detectFromCameraImage(
+          frame, sensorOrientation, _isFrontCamera);
+      detectedLetter = result?.letter;
+    }
+    _isProcessingFrame = false;
+
+    if (!mounted) return;
+
+    // Update vote buffer
+    _alphabetVoteBuffer.add(detectedLetter);
+    if (_alphabetVoteBuffer.length > _voteWindowSize) {
+      _alphabetVoteBuffer.removeAt(0);
+    }
+
+    // Always update live feedback
+    state = state.copyWith(
+      currentAlphabetLetter: detectedLetter,
+      clearAlphabetLetter: detectedLetter == null,
+    );
+
+    // Need full window before committing
+    if (_alphabetVoteBuffer.length < _voteWindowSize) return;
+
+    // Cooldown check
+    final now = DateTime.now();
+    if (_lastLetterCommitTime != null &&
+        now.difference(_lastLetterCommitTime!) < _commitCooldown) {
+      return;
+    }
+
+    // Majority vote
+    final counts = <String, int>{};
+    for (final l in _alphabetVoteBuffer) {
+      if (l != null) counts[l] = (counts[l] ?? 0) + 1;
+    }
+    if (counts.isEmpty) return;
+
+    final top = counts.entries.reduce((a, b) => a.value > b.value ? a : b);
+    if (top.value < _voteThreshold) return;
+
+    // Commit the stable letter
+    _alphabetVoteBuffer.clear();
+    _lastLetterCommitTime = now;
+
+    final newGloss = [...state.currentGloss, top.key];
+    debugPrint(
+        '[DeafToHearing] [ABC] Committed: ${top.key} (${top.value}/$_voteWindowSize) → [${newGloss.join("")}]');
+    state = state.copyWith(currentGloss: newGloss, errorMessage: null);
   }
 
   // ── Session lifecycle ────────────────────────────────────────────────────
@@ -229,6 +362,12 @@ class DeafToHearingNotifier extends StateNotifier<DeafToHearingState> {
       errorMessage: null,
       clearAiSuggestion: true,
     );
+  }
+
+  /// Add a space separator (alphabet mode: separate words).
+  void addSpace() {
+    final newGloss = [...state.currentGloss, ' '];
+    state = state.copyWith(currentGloss: newGloss);
   }
 
   Future<void> _refineCurrentGloss(List<String> gloss) async {

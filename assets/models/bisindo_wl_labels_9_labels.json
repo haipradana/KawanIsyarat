@@ -1,0 +1,41 @@
+{
+  "label_to_index": {
+    "maaf": 0,
+    "motor": 1,
+    "saya": 2,
+    "terima_kasih": 3,
+    "tuli": 4,
+    "dengar": 5,
+    "datang": 6,
+    "teman": 7,
+    "rumah": 8
+  },
+  "index_to_label": {
+    "0": "maaf",
+    "1": "motor",
+    "2": "saya",
+    "3": "terima_kasih",
+    "4": "tuli",
+    "5": "dengar",
+    "6": "datang",
+    "7": "teman",
+    "8": "rumah"
+  },
+  "num_classes": 9,
+  "labels": [
+    "maaf",
+    "motor",
+    "saya",
+    "terima_kasih",
+    "tuli",
+    "dengar",
+    "datang",
+    "teman",
+    "rumah"
+  ],
+  "feature_dim": 98,
+  "sequence_len": 30,
+  "dataset": "WL-BISINDO",
+  "normalization": "nose-centered + per-sequence std",
+  "temporal_total": 294
+}

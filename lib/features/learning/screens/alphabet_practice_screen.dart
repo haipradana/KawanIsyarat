@@ -8,23 +8,37 @@ import 'package:camera/camera.dart';
 import 'package:permission_handler/permission_handler.dart';
 import '../../../app/constants.dart';
 import '../../../core/services/sibi_alphabet_service.dart';
+import '../../../core/services/bisindo_alphabet_service.dart';
 
 /// Alphabet practice screen — MediaPipe + Dense classifier.
 ///
-/// Pipeline: imageStream → hand_landmarker → Boháček normalization →
-///           Dense TFLite (sibi_alphabet_model.tflite) → letter
+/// Mendukung dua sistem alfabet:
+/// - **SIBI** (1 tangan, 24 kelas A-Y skip J & Z) — sibi_alphabet_model_f32.tflite
+/// - **BISINDO** (2 tangan, 22 kelas A-V) — bisindo_alphabet_model_f32.tflite
 ///
-/// Lebih akurat dari YOLO karena:
-/// - Trained on same normalization sebagai inference
-/// - 95% val accuracy pada 24 kelas
-/// - 68KB model vs YOLO yang lebih besar
+/// Pipeline: imageStream → hand_landmarker → Boháček normalization →
+///           Dense TFLite → letter
+enum AlphabetMode { sibi, bisindo }
+
 class AlphabetPracticeScreen extends StatefulWidget {
   final String targetLetter;
+  final AlphabetMode mode;
 
-  const AlphabetPracticeScreen({super.key, required this.targetLetter});
+  const AlphabetPracticeScreen({
+    super.key,
+    required this.targetLetter,
+    this.mode = AlphabetMode.sibi,
+  });
 
   @override
   State<AlphabetPracticeScreen> createState() => _AlphabetPracticeScreenState();
+}
+
+/// Lightweight result wrapper so screen logic doesn't care about source service.
+class _AbcDetection {
+  final String letter;
+  final double confidence;
+  const _AbcDetection(this.letter, this.confidence);
 }
 
 enum _Phase { preparing, countdown, capturing, result }
@@ -33,15 +47,16 @@ class _AlphabetPracticeScreenState extends State<AlphabetPracticeScreen>
     with SingleTickerProviderStateMixin {
   CameraController? _cameraController;
   final SibiAlphabetService _sibi = SibiAlphabetService();
+  final BisindoAlphabetService _bisindo = BisindoAlphabetService();
 
   bool _isInitialized = false;
   String? _error;
   bool _disposed = false;
 
   _Phase _phase = _Phase.preparing;
-  SibiDetectionResult? _liveResult;   // deteksi realtime dari stream
-  SibiDetectionResult? _lastResult;   // difreeze saat capture
-  final Queue<SibiDetectionResult> _recentPredictions = Queue<SibiDetectionResult>();
+  _AbcDetection? _liveResult;   // deteksi realtime dari stream
+  _AbcDetection? _lastResult;   // difreeze saat capture
+  final Queue<_AbcDetection> _recentPredictions = Queue<_AbcDetection>();
   bool _isCorrect = false;
   int _correctCount = 0;
   int _totalCount = 0;
@@ -71,9 +86,13 @@ class _AlphabetPracticeScreenState extends State<AlphabetPracticeScreen>
 
   Future<void> _init() async {
     try {
-      if (!SibiAlphabetService.supportedLetters.contains(widget.targetLetter)) {
+      final supportedLetters = widget.mode == AlphabetMode.sibi
+          ? SibiAlphabetService.supportedLetters
+          : BisindoAlphabetService.supportedLetters;
+      if (!supportedLetters.contains(widget.targetLetter)) {
         setState(() {
-          _error = 'Huruf "${widget.targetLetter}" belum didukung model latihan saat ini.';
+          _error =
+              'Huruf "${widget.targetLetter}" belum didukung model $_modeLabel saat ini.';
         });
         return;
       }
@@ -107,8 +126,12 @@ class _AlphabetPracticeScreenState extends State<AlphabetPracticeScreen>
 
       await _cameraController!.initialize();
 
-      // Load model
-      await _sibi.initialize();
+      // Load model sesuai mode
+      if (widget.mode == AlphabetMode.sibi) {
+        await _sibi.initialize();
+      } else {
+        await _bisindo.initialize();
+      }
 
       // Mulai stream untuk deteksi realtime
       await _cameraController!.startImageStream(_onCameraFrame);
@@ -135,11 +158,22 @@ class _AlphabetPracticeScreenState extends State<AlphabetPracticeScreen>
     _isProcessingFrame = true;
 
     try {
-      final result = _sibi.detectFromCameraImage(
-        frame,
-        _sensorOrientation,
-        _isFrontCamera,
-      );
+      _AbcDetection? result;
+      if (widget.mode == AlphabetMode.sibi) {
+        final r = _sibi.detectFromCameraImage(
+          frame,
+          _sensorOrientation,
+          _isFrontCamera,
+        );
+        if (r != null) result = _AbcDetection(r.letter, r.confidence);
+      } else {
+        final r = _bisindo.detectFromCameraImage(
+          frame,
+          _sensorOrientation,
+          _isFrontCamera,
+        );
+        if (r != null) result = _AbcDetection(r.letter, r.confidence);
+      }
       final smoothed = _pushPrediction(result);
       if (mounted && !_disposed) {
         setState(() => _liveResult = smoothed);
@@ -148,6 +182,11 @@ class _AlphabetPracticeScreenState extends State<AlphabetPracticeScreen>
       _isProcessingFrame = false;
     }
   }
+
+  String get _modeLabel => widget.mode == AlphabetMode.sibi ? 'SIBI' : 'BISINDO';
+  String get _modeHint => widget.mode == AlphabetMode.sibi
+      ? '1 tangan'
+      : '2 tangan';
 
   // ─── Phase management ──────────────────────────────────────────────────────
 
@@ -182,7 +221,7 @@ class _AlphabetPracticeScreenState extends State<AlphabetPracticeScreen>
     });
   }
 
-  void _showResult(SibiDetectionResult? result) {
+  void _showResult(_AbcDetection? result) {
     if (_disposed || !mounted) return;
 
     _totalCount++;
@@ -208,7 +247,7 @@ class _AlphabetPracticeScreenState extends State<AlphabetPracticeScreen>
     });
   }
 
-  SibiDetectionResult? _pushPrediction(SibiDetectionResult? result) {
+  _AbcDetection? _pushPrediction(_AbcDetection? result) {
     if (result == null) {
       _missedFrames++;
       if (_missedFrames >= 3) {
@@ -226,7 +265,7 @@ class _AlphabetPracticeScreenState extends State<AlphabetPracticeScreen>
     return _resolveStablePrediction(requireConsensus: false);
   }
 
-  SibiDetectionResult? _resolveStablePrediction({required bool requireConsensus}) {
+  _AbcDetection? _resolveStablePrediction({required bool requireConsensus}) {
     if (_recentPredictions.isEmpty) return null;
 
     final grouped = <String, List<double>>{};
@@ -269,10 +308,7 @@ class _AlphabetPracticeScreenState extends State<AlphabetPracticeScreen>
       return null;
     }
 
-    return SibiDetectionResult(
-      letter: bestLetter,
-      confidence: avgConfidence,
-    );
+    return _AbcDetection(bestLetter, avgConfidence);
   }
 
   @override
@@ -282,7 +318,11 @@ class _AlphabetPracticeScreenState extends State<AlphabetPracticeScreen>
     _countdownController.dispose();
     _cameraController?.stopImageStream();
     _cameraController?.dispose();
-    _sibi.dispose();
+    if (widget.mode == AlphabetMode.sibi) {
+      _sibi.dispose();
+    } else {
+      _bisindo.dispose();
+    }
     super.dispose();
   }
 
@@ -481,7 +521,7 @@ class _AlphabetPracticeScreenState extends State<AlphabetPracticeScreen>
   // ─── Widgets ───────────────────────────────────────────────────────────────
 
   /// Badge kecil yang menampilkan deteksi realtime (saat countdown berlangsung)
-  Widget _liveDetectionBadge(SibiDetectionResult result) {
+  Widget _liveDetectionBadge(_AbcDetection result) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
@@ -561,9 +601,23 @@ class _AlphabetPracticeScreenState extends State<AlphabetPracticeScreen>
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Text('Target: ',
-              style: GoogleFonts.beVietnamPro(
-                  color: Colors.white70, fontSize: 13)),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+            decoration: BoxDecoration(
+              color: Colors.white.withOpacity(0.2),
+              borderRadius: BorderRadius.circular(6),
+            ),
+            child: Text(
+              _modeLabel,
+              style: GoogleFonts.jetBrainsMono(
+                color: Colors.white,
+                fontSize: 9,
+                fontWeight: FontWeight.w700,
+                letterSpacing: 0.6,
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
           Text(widget.targetLetter,
               style: GoogleFonts.plusJakartaSans(
                   color: Colors.white,
@@ -587,7 +641,7 @@ class _AlphabetPracticeScreenState extends State<AlphabetPracticeScreen>
       case _Phase.countdown:
         return _pill(
           Icons.front_hand_rounded,
-          'Tunjukkan isyarat "${widget.targetLetter}" ke kamera',
+          'Tunjukkan isyarat "${widget.targetLetter}" ($_modeHint) ke kamera',
           Colors.white60,
         );
 

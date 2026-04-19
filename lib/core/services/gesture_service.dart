@@ -9,11 +9,11 @@ import 'mediapipe_service.dart';
 /// BISINDO gesture recognition service — WL-BISINDO v3.
 ///
 /// Pipeline:
-///   Camera → MediaPipe (pose + hands) → 98-float nose-centered features
-///   → Per-sequence std-normalization → Temporal derivatives (98 → 294)
-///   → TFLite Conv1D+ECA+Transformer model → 28-class prediction
+///   Camera → MediaPipe (pose + hands) → 100-float nose-centered features
+///   → Per-sequence std-normalization → Temporal derivatives (100 → 300)
+///   → TFLite Conv1D+ECA+Transformer model → N-class prediction
 ///
-/// Feature vector layout (98 floats per frame):
+/// Feature vector layout (100 floats per frame):
 ///   [0:42]   = Right hand 21×(x,y) nose-centered
 ///   [42:84]  = Left hand  21×(x,y) nose-centered
 ///   [84:86]  = Nose position (always 0,0 after centering)
@@ -23,11 +23,13 @@ import 'mediapipe_service.dart';
 ///   [92:94]  = Right ear nose-centered
 ///   [94:96]  = Left elbow nose-centered
 ///   [96:98]  = Right elbow nose-centered
+///   [98]     = has_right_hand (1.0 if detected, NaN otherwise)
+///   [99]     = has_left_hand  (1.0 if detected, NaN otherwise)
 ///
 /// Normalization:
 ///   1. Nose-centered: all coords -= nose position
 ///   2. Per-sequence std normalization: (x - mean) / std
-///   3. Temporal derivatives: position + velocity + acceleration = 282
+///   3. Temporal derivatives: position + velocity + acceleration = 300
 class GestureService {
   static final GestureService _instance = GestureService._internal();
   factory GestureService() => _instance;
@@ -46,8 +48,8 @@ class GestureService {
   // Raw 98-dim nose-centered features (NOT yet std-normalized or derivatives)
   final List<List<double>> _rawFrameBuffer = [];
   static const int _sequenceLength = 30;
-  static const int _rawFeatureDim = 98;       // matches training FEATURE_DIM
-  // _derivFeatureDim = 294 (98 × 3: pos+vel+acc) — computed in _addTemporalDerivatives
+  static const int _rawFeatureDim = 100;      // matches training FEATURE_DIM
+  // _derivFeatureDim = 300 (100 × 3: pos+vel+acc) — computed in _addTemporalDerivatives
   static const double _confidenceThreshold = 0.30;
 
   // Frame decimation: training used uniform-30 from ~2s gesture (≈15fps effective).
@@ -111,13 +113,14 @@ class GestureService {
   // FEATURE EXTRACTION — 258 raw keypoints → 98 nose-centered features
   // ════════════════════════════════════════════════════════════════════════
 
-  /// Convert 258 raw MediaPipe keypoints → 98-float nose-centered feature vector.
+  /// Convert 258 raw MediaPipe keypoints → 100-float nose-centered feature vector.
   ///
   /// This matches the training pipeline in kaggle_bisindo_wl.py:
   ///   - Nose-centered: all coords -= nose position
   ///   - NaN for undetected landmarks → handled during std-normalization
   ///   - Hand detection via hand_landmarker (already display-space)
   ///   - Pose via ML Kit (needs 90° rotation for portrait)
+  ///   - Hand presence flags: features[98]=has_right, features[99]=has_left
   List<double> _extractBisindoFeatures(
     List<double> rawKeypoints,
     int sensorOrientation,
@@ -161,14 +164,24 @@ class GestureService {
     //   [132..194] = left hand  21 × 3 (x, y, z) — already in display space
     //   [195..257] = right hand 21 × 3 (x, y, z) — already in display space
 
+    // Track which hands are detected for presence flags.
+    bool hasRightHand = false;
+    bool hasLeftHand = false;
+
     // Right hand → features[0:42]
-    _extractHandNoseCentered(
+    hasRightHand = _extractHandNoseCentered(
       rawKeypoints, 195, features, 0, noseX, noseY,
     );
     // Left hand → features[42:84]
-    _extractHandNoseCentered(
+    hasLeftHand = _extractHandNoseCentered(
       rawKeypoints, 132, features, 42, noseX, noseY,
     );
+
+    // ── Hand presence flags [98:100] ────────────────────────────────────────
+    // After std-normalization, NaN→0 is ambiguous. These binary flags give
+    // the model an explicit signal to distinguish 1-hand vs 2-hand signs.
+    features[98] = hasRightHand ? 1.0 : double.nan;
+    features[99] = hasLeftHand  ? 1.0 : double.nan;
 
     // ── DEBUG: log nose + wrist positions (every 30th call) ─────────────────
     _debugExtractCount++;
@@ -177,8 +190,6 @@ class GestureService {
       final lmX = rawKeypoints[195];
       final lmY = rawKeypoints[196];
       // Right wrist nose-centered in portrait space (what model sees)
-      // features[0] = lmY - noseX (portrait_x centered)
-      // features[1] = lmX - noseY (portrait_y centered)
       final rwCX = features[0];
       final rwCY = features[1];
       debugPrint(
@@ -186,7 +197,7 @@ class GestureService {
         'nose=(${noseX.toStringAsFixed(3)}, ${noseY.toStringAsFixed(3)}) '
         'R_wrist_sensor=(${lmX.toStringAsFixed(3)}, ${lmY.toStringAsFixed(3)}) '
         'R_wrist_portrait_centered=(${rwCX.toStringAsFixed(3)}, ${rwCY.toStringAsFixed(3)}) '
-        'hasPose=$hasPose',
+        'hasPose=$hasPose hasR=$hasRightHand hasL=$hasLeftHand',
       );
     }
 
@@ -194,6 +205,7 @@ class GestureService {
   }
 
   /// Extract one hand's 21 landmarks, nose-centered, into features array.
+  /// Returns true if hand was detected (at least one non-zero landmark).
   ///
   /// hand_landmarker returns coordinates in sensor/landscape space:
   ///   lm.x = sensor horizontal (= portrait VERTICAL direction)
@@ -206,7 +218,7 @@ class GestureService {
   ///   noseX = portrait_x_px / portrait_width_px  (frame.height for sensor 90°)
   ///   noseY = portrait_y_px / portrait_height_px (frame.width  for sensor 90°)
   /// lm.y is also normalized to portrait_width, lm.x to portrait_height → same scale ✓
-  void _extractHandNoseCentered(
+  bool _extractHandNoseCentered(
     List<double> rawKeypoints,
     int srcStart,       // 132 for left, 195 for right
     List<double> features,
@@ -214,6 +226,7 @@ class GestureService {
     double noseX,
     double noseY,
   ) {
+    bool hasHand = false;
     for (int i = 0; i < 21; i++) {
       final base = srcStart + i * 3;
       if (base + 1 >= rawKeypoints.length) break;
@@ -222,6 +235,7 @@ class GestureService {
       final lmY = rawKeypoints[base + 1];
 
       if (lmX != 0.0 || lmY != 0.0) {
+        hasHand = true;
         // sensor space (sensorOrientation=90) → portrait display:
         //   portrait_x = lm.y  (sensor_y → portrait horizontal)
         //   portrait_y = 1 - lm.x  (sensor_x inverted → portrait vertical, 0=top)
@@ -230,6 +244,7 @@ class GestureService {
       }
       // If not detected, stays NaN and is ignored during std-normalization.
     }
+    return hasHand;
   }
 
   // ════════════════════════════════════════════════════════════════════════

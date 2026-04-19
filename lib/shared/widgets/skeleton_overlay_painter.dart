@@ -1,10 +1,10 @@
 import 'dart:math';
 import 'package:flutter/material.dart';
 
-/// Draws the 98-dim model input: 2 hands (21 landmarks each) + 7 pose anchors.
+/// Draws the 100-dim model input: 2 hands (21 landmarks each) + 7 pose anchors + 2 hand-presence.
 /// All coordinates are nose-centered (origin = nose).
 ///
-/// Feature layout (98 floats):
+/// Feature layout (100 floats):
 ///   [0:42]   = Right hand 21×(x,y)
 ///   [42:84]  = Left hand 21×(x,y)
 ///   [84:86]  = Nose (always ~0,0)
@@ -14,8 +14,10 @@ import 'package:flutter/material.dart';
 ///   [92:94]  = Right ear
 ///   [94:96]  = Left elbow
 ///   [96:98]  = Right elbow
+///   [98]     = has_right_hand
+///   [99]     = has_left_hand
 class ModelInputPainter extends CustomPainter {
-  /// 98-dim nose-centered features from GestureService.
+  /// 100-dim nose-centered features from GestureService.
   final List<double> features;
   final bool isActive;
 
@@ -44,7 +46,7 @@ class ModelInputPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    if (!isActive || features.length < 98) return;
+    if (!isActive || features.length < 100) return;
 
     // Check if any hand data exists
     bool hasAnyData = false;

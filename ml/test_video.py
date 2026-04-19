@@ -39,7 +39,7 @@ HAND_TASK_PATH = ML_DIR / "hand_landmarker.task"
 POSE_TASK_PATH = ML_DIR / "pose_landmarker_lite.task"
 
 SEQUENCE_LEN = 30
-FEATURE_DIM  = 98
+FEATURE_DIM  = 100
 POSE_ANCHOR_IDX = [0, 11, 12, 7, 8, 13, 14]  # nose, L_shoulder, R_shoulder, L_ear, R_ear, L_elbow, R_elbow
 
 
@@ -112,6 +112,8 @@ def _extract_features_solutions(hand_result, pose_result) -> np.ndarray:
     """Solutions API version (mediapipe 0.9.x)."""
     out = np.full(FEATURE_DIM, np.nan, dtype=np.float32)
     nose_x, nose_y = 0.5, 0.5
+    has_right = False
+    has_left  = False
 
     if pose_result.pose_landmarks:
         lm = pose_result.pose_landmarks.landmark
@@ -121,16 +123,20 @@ def _extract_features_solutions(hand_result, pose_result) -> np.ndarray:
             out[84 + i*2]     = lm[idx].x - nose_x
             out[84 + i*2 + 1] = lm[idx].y - nose_y
 
-    if hand_result.multi_hand_landmarks is None:
-        return out
+    if hand_result.multi_hand_landmarks is not None:
+        for hand_lm in hand_result.multi_hand_landmarks:
+            is_right = _anatomical_is_right(hand_lm.landmark)
+            base = 0 if is_right else 42
+            if is_right:
+                has_right = True
+            else:
+                has_left = True
+            for j, lm in enumerate(hand_lm.landmark):
+                out[base + j*2]     = lm.x - nose_x
+                out[base + j*2 + 1] = lm.y - nose_y
 
-    for hand_lm in hand_result.multi_hand_landmarks:
-        is_right = _anatomical_is_right(hand_lm.landmark)
-        base = 0 if is_right else 42
-        for j, lm in enumerate(hand_lm.landmark):
-            out[base + j*2]     = lm.x - nose_x
-            out[base + j*2 + 1] = lm.y - nose_y
-
+    out[98] = 1.0 if has_right else np.nan
+    out[99] = 1.0 if has_left  else np.nan
     return out
 
 
@@ -154,6 +160,8 @@ def _extract_features_tasks(hand_result, pose_result) -> np.ndarray:
     """Tasks API version (mediapipe 0.10+) dengan anatomical handedness."""
     out = np.full(FEATURE_DIM, np.nan, dtype=np.float32)
     nose_x, nose_y = 0.5, 0.5
+    has_right = False
+    has_left  = False
 
     if pose_result.pose_landmarks:
         lm = pose_result.pose_landmarks[0]
@@ -163,16 +171,20 @@ def _extract_features_tasks(hand_result, pose_result) -> np.ndarray:
             out[84 + i*2]     = lm[idx].x - nose_x
             out[84 + i*2 + 1] = lm[idx].y - nose_y
 
-    if not hand_result.hand_landmarks:
-        return out
+    if hand_result.hand_landmarks:
+        for hand_lm in hand_result.hand_landmarks:
+            is_right = _anatomical_is_right(hand_lm)
+            base = 0 if is_right else 42
+            if is_right:
+                has_right = True
+            else:
+                has_left = True
+            for j, lm in enumerate(hand_lm):
+                out[base + j*2]     = lm.x - nose_x
+                out[base + j*2 + 1] = lm.y - nose_y
 
-    for hand_lm in hand_result.hand_landmarks:
-        is_right = _anatomical_is_right(hand_lm)
-        base = 0 if is_right else 42
-        for j, lm in enumerate(hand_lm):
-            out[base + j*2]     = lm.x - nose_x
-            out[base + j*2 + 1] = lm.y - nose_y
-
+    out[98] = 1.0 if has_right else np.nan
+    out[99] = 1.0 if has_left  else np.nan
     return out
 
 
