@@ -13,8 +13,8 @@ import '../services/model_manager.dart';
 import '../services/tts_service.dart';
 import '../services/sibi_alphabet_service.dart';
 import '../services/bisindo_alphabet_service.dart';
+import '../services/persistence_service.dart';
 import '../../shared/models/conversation_entry.dart';
-import '../../shared/models/user_persona.dart';
 
 /// Detection modes for sign-to-text.
 ///   sign          — BISINDO gesture recognition (LSTM, 30-frame recording)
@@ -742,53 +742,33 @@ final conversationHistoryProvider =
   return ConversationHistoryNotifier();
 });
 
-class ConversationHistoryNotifier extends StateNotifier<List<ConversationEntry>> {
-  ConversationHistoryNotifier() : super(_mockHistory);
+class ConversationHistoryNotifier
+    extends StateNotifier<List<ConversationEntry>> {
+  ConversationHistoryNotifier() : super([]) {
+    _load();
+  }
 
-  static final List<ConversationEntry> _mockHistory = [
-    ConversationEntry(
-      id: '1',
-      sourcePersona: UserPersona.tuli,
-      originalText: 'NAMA SAYA APA',
-      translatedText: 'Siapa nama kamu?',
-      timestamp: DateTime.now().subtract(Duration(minutes: 5)),
-      type: ConversationType.signToText,
-    ),
-    ConversationEntry(
-      id: '2',
-      sourcePersona: UserPersona.mendengar,
-      originalText: 'Saya sedang mencari jalan menuju stasiun terdekat',
-      translatedText: 'Budi ingin tahu jalan ke stasiun.',
-      timestamp: DateTime.now().subtract(Duration(minutes: 15)),
-      type: ConversationType.speechToSign,
-    ),
-    ConversationEntry(
-      id: '3',
-      sourcePersona: UserPersona.tuli,
-      originalText: 'TERIMA KASIH',
-      translatedText: 'Terima kasih banyak!',
-      timestamp: DateTime.now().subtract(Duration(hours: 1)),
-      type: ConversationType.signToText,
-    ),
-    ConversationEntry(
-      id: '4',
-      sourcePersona: UserPersona.mendengar,
-      originalText: 'Permisi, apakah toko buku ini masih buka?',
-      translatedText: 'Dia bertanya apakah toko buku buka.',
-      timestamp: DateTime.now().subtract(Duration(hours: 3)),
-      type: ConversationType.speechToSign,
-    ),
-    ConversationEntry(
-      id: '5',
-      sourcePersona: UserPersona.tuli,
-      originalText: 'TOLONG BANTU',
-      translatedText: 'Tolong bantu saya.',
-      timestamp: DateTime.now().subtract(Duration(hours: 5)),
-      type: ConversationType.signToText,
-    ),
-  ];
+  final PersistenceService _svc = PersistenceService.instance;
 
-  void addEntry(ConversationEntry entry) {
+  void _load() {
+    final raw = _svc.loadConversations();
+    state = raw
+        .map((m) => ConversationEntry.fromJson(Map<String, dynamic>.from(m)))
+        .toList();
+  }
+
+  Future<void> addEntry(ConversationEntry entry) async {
+    await _svc.addConversation(entry.id, entry.toJson());
     state = [entry, ...state];
+  }
+
+  Future<void> removeEntry(String id) async {
+    await _svc.deleteConversation(id);
+    state = state.where((e) => e.id != id).toList();
+  }
+
+  Future<void> clearAll() async {
+    await _svc.clearConversations();
+    state = [];
   }
 }

@@ -7,6 +7,7 @@ import '../../../app/constants.dart';
 import '../../../shared/widgets/kawan_app_bar.dart';
 import '../../../shared/widgets/bottom_nav_bar.dart';
 import '../../../core/providers/persona_provider.dart';
+import '../../../core/providers/learning_progress_provider.dart';
 import '../../../shared/models/user_persona.dart';
 
 
@@ -17,6 +18,18 @@ class LearningHubScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final persona = ref.watch(personaProvider);
     final isTuli = persona == UserPersona.tuli;
+    final progress = ref.watch(learningProgressProvider);
+
+    final kataDone = progress.countFor(LearningModule.kataBisindo);
+    final kataTotal = LearningModule.totalFor(LearningModule.kataBisindo);
+    final sibiDone = progress.countFor(LearningModule.alfabetSibi);
+    final sibiTotal = LearningModule.totalFor(LearningModule.alfabetSibi);
+    final bisindoDone = progress.countFor(LearningModule.alfabetBisindo);
+    final bisindoTotal = LearningModule.totalFor(LearningModule.alfabetBisindo);
+    final idiomDone = progress.countFor(LearningModule.idiom);
+    final idiomTotal = LearningModule.totalFor(LearningModule.idiom);
+    final artiDone = progress.countFor(LearningModule.artikulasi);
+    final artiTotal = LearningModule.totalFor(LearningModule.artikulasi);
 
     return Scaffold(
       backgroundColor: AppColors.background,
@@ -54,8 +67,8 @@ class LearningHubScreen extends ConsumerWidget {
                 icon: Icons.front_hand_rounded,
                 title: 'Belajar Kata BISINDO',
                 description: 'Praktikkan isyarat kata-kata sehari-hari dengan panduan AI',
-                progress: 0.3,
-                progressLabel: '3/10 kata',
+                progress: kataTotal == 0 ? 0 : kataDone / kataTotal,
+                progressLabel: '$kataDone/$kataTotal kata',
                 color: AppColors.primary,
                 onTap: () => context.push('/learn/kata'),
               ).animate().fadeIn(duration: 500.ms, delay: 200.ms).slideY(
@@ -66,8 +79,8 @@ class LearningHubScreen extends ConsumerWidget {
                 icon: Icons.front_hand_rounded,
                 title: 'Belajar Alfabet SIBI',
                 description: 'Isyarat huruf A-Z dengan 1 tangan (Sistem Isyarat Bahasa Indonesia)',
-                progress: 0.0,
-                progressLabel: '0/24 huruf',
+                progress: sibiTotal == 0 ? 0 : sibiDone / sibiTotal,
+                progressLabel: '$sibiDone/$sibiTotal huruf',
                 color: AppColors.accent,
                 onTap: () => context.push('/learn/alfabet/sibi'),
               ).animate().fadeIn(duration: 500.ms, delay: 350.ms).slideY(
@@ -78,8 +91,8 @@ class LearningHubScreen extends ConsumerWidget {
                 icon: Icons.sign_language_rounded,
                 title: 'Belajar Alfabet BISINDO',
                 description: 'Isyarat huruf A-Z dengan 2 tangan (lebih natural, digunakan komunitas Tuli)',
-                progress: 0.0,
-                progressLabel: '0/26 huruf',
+                progress: bisindoTotal == 0 ? 0 : bisindoDone / bisindoTotal,
+                progressLabel: '$bisindoDone/$bisindoTotal huruf',
                 color: const Color(0xFF7C3AED),
                 onTap: () => context.push('/learn/alfabet/bisindo'),
               ).animate().fadeIn(duration: 500.ms, delay: 500.ms).slideY(
@@ -91,8 +104,8 @@ class LearningHubScreen extends ConsumerWidget {
                 icon: Icons.translate_rounded,
                 title: 'Penerjemah Idiom',
                 description: 'Pahami arti kiasan dan idiom dalam bahasa sehari-hari',
-                progress: 0.0,
-                progressLabel: '0/5 idiom',
+                progress: idiomTotal == 0 ? 0 : idiomDone / idiomTotal,
+                progressLabel: '$idiomDone/$idiomTotal idiom',
                 color: AppColors.primary,
                 onTap: () => context.push('/learn/idiom'),
               ).animate().fadeIn(duration: 500.ms, delay: 200.ms).slideY(
@@ -103,8 +116,8 @@ class LearningHubScreen extends ConsumerWidget {
                 icon: Icons.record_voice_over_rounded,
                 title: 'Latihan Artikulasi',
                 description: 'Latih pengucapan kata dengan umpan balik AI',
-                progress: 0.0,
-                progressLabel: '0/10 kata',
+                progress: artiTotal == 0 ? 0 : artiDone / artiTotal,
+                progressLabel: '$artiDone/$artiTotal kata',
                 color: AppColors.accent,
                 onTap: () => context.push('/learn/artikulasi'),
               ).animate().fadeIn(duration: 500.ms, delay: 350.ms).slideY(

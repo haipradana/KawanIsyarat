@@ -9,6 +9,8 @@ import '../../../shared/widgets/bottom_nav_bar.dart';
 import '../../../core/services/tts_service.dart';
 import '../../../core/providers/auth_provider.dart';
 import '../../../core/providers/persona_provider.dart';
+import '../../../core/providers/ai_providers.dart';
+import '../../../core/providers/learning_progress_provider.dart';
 import '../../../shared/models/user_persona.dart';
 
 class SettingsScreen extends ConsumerStatefulWidget {
@@ -80,10 +82,18 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             _buildActionTile(
               icon: Icons.psychology_rounded,
               title: 'Model AI Lokal',
-              subtitle: 'Download dan kelola model AI on-device',
+              subtitle: _aiStatusSubtitle(ref.watch(aiInitProvider)),
               iconColor: AppColors.primary,
               onTap: () => context.push('/ai-init'),
             ).animate().fadeIn(duration: 300.ms, delay: 600.ms),
+            SizedBox(height: AppSpacing.sm),
+            _buildActionTile(
+              icon: Icons.restart_alt_rounded,
+              title: 'Reset Progres Belajar',
+              subtitle: 'Hapus semua tanda selesai di modul belajar',
+              iconColor: AppColors.accent,
+              onTap: () => _confirmResetAllProgress(context),
+            ).animate().fadeIn(duration: 300.ms, delay: 620.ms),
             SizedBox(height: AppSpacing.sm),
             _buildActionTile(
               icon: Icons.swap_horiz_rounded,
@@ -571,6 +581,61 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 color: AppColors.error,
               ),
             ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _aiStatusSubtitle(AIInitState s) {
+    switch (s.status) {
+      case AIInitStatus.ready:
+        return 'Gemma 4 siap — tersedia offline';
+      case AIInitStatus.downloadingLLM:
+      case AIInitStatus.downloadingSTT:
+        return 'Mengunduh model... ${(s.progress * 100).toStringAsFixed(0)}%';
+      case AIInitStatus.loadingLLM:
+      case AIInitStatus.loadingSTT:
+        return 'Memuat model ke memori...';
+      case AIInitStatus.error:
+        return 'Gagal memuat — ketuk untuk coba lagi';
+      case AIInitStatus.skipped:
+        return 'Dilewati — ketuk untuk aktifkan';
+      case AIInitStatus.notStarted:
+        return 'Belum siap — akan dimuat otomatis';
+    }
+  }
+
+  void _confirmResetAllProgress(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AppColors.surface,
+        shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(AppRadius.xxl)),
+        title: Text('Reset Semua Progres?',
+            style: GoogleFonts.plusJakartaSans(fontWeight: FontWeight.w700)),
+        content: Text(
+          'Semua tanda selesai di modul Alfabet, Kata, Idiom, dan Artikulasi akan dihapus.',
+          style: GoogleFonts.beVietnamPro(
+              fontSize: 14, color: AppColors.textSecondary),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: Text('Batal',
+                style: GoogleFonts.plusJakartaSans(
+                    fontWeight: FontWeight.w600,
+                    color: AppColors.textSecondary)),
+          ),
+          TextButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+              ref.read(learningProgressProvider.notifier).resetAll();
+            },
+            child: Text('Reset',
+                style: GoogleFonts.plusJakartaSans(
+                    fontWeight: FontWeight.w700, color: AppColors.error)),
           ),
         ],
       ),

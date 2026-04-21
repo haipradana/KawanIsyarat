@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:collection';
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:go_router/go_router.dart';
@@ -12,6 +13,7 @@ import '../../../app/constants.dart';
 import '../../../core/services/sibi_alphabet_service.dart';
 import '../../../core/services/bisindo_alphabet_service.dart';
 import '../../../core/services/gemma_service.dart';
+import '../../../core/providers/learning_progress_provider.dart';
 
 /// Alphabet practice screen — single-shot capture + Gemma 4 Vision Sign Coach.
 ///
@@ -25,7 +27,7 @@ import '../../../core/services/gemma_service.dart';
 /// User bisa tekan tombol capture manual kapanpun di fase `ready` / `holding`.
 enum AlphabetMode { sibi, bisindo }
 
-class AlphabetPracticeScreen extends StatefulWidget {
+class AlphabetPracticeScreen extends ConsumerStatefulWidget {
   final String targetLetter;
   final AlphabetMode mode;
 
@@ -36,7 +38,8 @@ class AlphabetPracticeScreen extends StatefulWidget {
   });
 
   @override
-  State<AlphabetPracticeScreen> createState() => _AlphabetPracticeScreenState();
+  ConsumerState<AlphabetPracticeScreen> createState() =>
+      _AlphabetPracticeScreenState();
 }
 
 class _AbcDetection {
@@ -47,7 +50,7 @@ class _AbcDetection {
 
 enum _Phase { preparing, ready, holding, capturing, coaching, reviewed }
 
-class _AlphabetPracticeScreenState extends State<AlphabetPracticeScreen>
+class _AlphabetPracticeScreenState extends ConsumerState<AlphabetPracticeScreen>
     with SingleTickerProviderStateMixin {
   CameraController? _cameraController;
   final SibiAlphabetService _sibi = SibiAlphabetService();
@@ -269,6 +272,10 @@ class _AlphabetPracticeScreenState extends State<AlphabetPracticeScreen>
     }
 
     final frozenDetection = _resolveStablePrediction(requireConsensus: false);
+    // Grab hand bounding box BEFORE stopping image stream
+    final handBbox = widget.mode == AlphabetMode.sibi
+        ? _sibi.lastHandBbox
+        : _bisindo.lastHandBbox;
     _attemptCount++;
     setState(() {
       _phase = _Phase.capturing;
@@ -288,12 +295,27 @@ class _AlphabetPracticeScreenState extends State<AlphabetPracticeScreen>
       final savedFile = await File(xfile.path).copy(savePath);
 
       if (_disposed) return;
+
+      // ── FREE MEMORY: Dispose camera + TFLite SEBELUM Gemma inference ──
+      // Pixel 6a (6GB): Camera+TFLite+MediaPipe = ~400MB.
+      // Gemma 4 vision encoder membutuhkan RAM ini.
+      debugPrint('[AlphabetPractice] Releasing camera+TFLite for Gemma vision...');
+      _holdCheckTimer?.cancel();
+      await _cameraController?.dispose();
+      _cameraController = null;
+      if (widget.mode == AlphabetMode.sibi) {
+        _sibi.dispose();
+      } else {
+        _bisindo.dispose();
+      }
+
       setState(() {
         _phase = _Phase.coaching;
         _capturedImagePath = savedFile.path;
+        _isInitialized = false; // camera disposed, prevent preview render
       });
 
-      await _runGemmaCoach(savedFile.path, frozenDetection);
+      await _runGemmaCoach(savedFile.path, frozenDetection, handBbox);
     } catch (e) {
       if (!_disposed && mounted) {
         setState(() {
@@ -305,7 +327,7 @@ class _AlphabetPracticeScreenState extends State<AlphabetPracticeScreen>
   }
 
   Future<void> _runGemmaCoach(
-      String imagePath, _AbcDetection? detection) async {
+      String imagePath, _AbcDetection? detection, Rect? handBbox) async {
     String? tips;
     String? err;
     try {
@@ -316,6 +338,7 @@ class _AlphabetPracticeScreenState extends State<AlphabetPracticeScreen>
           detectedLabel: detection?.letter,
           mode: widget.mode == AlphabetMode.sibi ? 'sibi' : 'bisindo_alfabet',
           attemptCount: _attemptCount,
+          handBbox: handBbox,
         );
       } else {
         err = 'Model Gemma belum siap. Tips AI tidak tersedia saat ini.';
@@ -329,12 +352,22 @@ class _AlphabetPracticeScreenState extends State<AlphabetPracticeScreen>
       _coachText = tips;
       _coachError = err;
     });
+    // Tandai selesai bila CNN mendeteksi huruf target dengan benar.
+    if (_isCorrect) {
+      final moduleKey = widget.mode == AlphabetMode.sibi
+          ? LearningModule.alfabetSibi
+          : LearningModule.alfabetBisindo;
+      ref
+          .read(learningProgressProvider.notifier)
+          .markDone(moduleKey, widget.targetLetter.toUpperCase());
+    }
   }
 
+  /// Reinit camera + TFLite setelah Gemma inference selesai.
   Future<void> _retake() async {
     if (_disposed) return;
     setState(() {
-      _phase = _Phase.ready;
+      _phase = _Phase.preparing;
       _capturedDetection = null;
       _capturedImagePath = null;
       _coachText = null;
@@ -345,13 +378,50 @@ class _AlphabetPracticeScreenState extends State<AlphabetPracticeScreen>
     _stableSince = null;
     _holdController.reset();
 
-    // Restart stream
+    // Re-init camera + TFLite (yang sudah di-dispose saat capture)
     try {
-      if (!_cameraController!.value.isStreamingImages) {
-        await _cameraController!.startImageStream(_onCameraFrame);
+      debugPrint('[AlphabetPractice] Re-init camera+TFLite after Gemma...');
+      final cameras = await availableCameras();
+      final camera = cameras.firstWhere(
+        (c) => c.lensDirection == CameraLensDirection.front,
+        orElse: () => cameras.first,
+      );
+      _sensorOrientation = camera.sensorOrientation;
+      _isFrontCamera = camera.lensDirection == CameraLensDirection.front;
+
+      _cameraController = CameraController(
+        camera,
+        ResolutionPreset.medium,
+        enableAudio: false,
+        imageFormatGroup: ImageFormatGroup.yuv420,
+      );
+
+      await _cameraController!.initialize();
+
+      if (widget.mode == AlphabetMode.sibi) {
+        await _sibi.initialize();
+      } else {
+        await _bisindo.initialize();
+      }
+
+      await _cameraController!.startImageStream(_onCameraFrame);
+
+      _holdCheckTimer = Timer.periodic(
+          const Duration(milliseconds: 150), (_) => _checkStableHold());
+
+      if (mounted && !_disposed) {
+        setState(() {
+          _isInitialized = true;
+          _phase = _Phase.ready;
+        });
       }
     } catch (e) {
-      debugPrint('[AlphabetPractice] restart stream failed: $e');
+      debugPrint('[AlphabetPractice] Re-init failed: $e');
+      if (mounted && !_disposed) {
+        setState(() {
+          _error = 'Gagal memulai ulang kamera: $e';
+        });
+      }
     }
   }
 
@@ -426,8 +496,12 @@ class _AlphabetPracticeScreenState extends State<AlphabetPracticeScreen>
             // Hold progress ring (saat holding)
             if (_phase == _Phase.holding) Center(child: _holdRing()),
 
-            // Loading
-            if (!_isInitialized && _error == null) _loadingView(),
+            // Loading — hanya saat benar-benar init awal/re-init, BUKAN saat coaching/reviewed
+            if (!_isInitialized &&
+                _error == null &&
+                _phase != _Phase.coaching &&
+                _phase != _Phase.reviewed)
+              _loadingView(),
 
             // Error
             if (_error != null) _errorView(),
@@ -488,7 +562,9 @@ class _AlphabetPracticeScreenState extends State<AlphabetPracticeScreen>
                 style: GoogleFonts.beVietnamPro(
                     color: Colors.white70, fontSize: 14)),
             const SizedBox(height: 8),
-            Text('MediaPipe + Dense + Gemma Vision',
+            Text(GemmaService.useVisionCoach
+                ? 'MediaPipe + Dense + Gemma Vision'
+                : 'MediaPipe + Dense + Gemma Coach',
                 style: GoogleFonts.jetBrainsMono(
                     color: Colors.white38, fontSize: 11)),
           ],
@@ -810,7 +886,9 @@ class _AlphabetPracticeScreenState extends State<AlphabetPracticeScreen>
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text('Tips dari Gemma 4 Vision',
+                      Text(GemmaService.useVisionCoach
+                          ? 'Tips dari Gemma 4 Vision'
+                          : 'Tips dari Gemma 4',
                           style: GoogleFonts.plusJakartaSans(
                               color: AppColors.primary,
                               fontSize: 11,

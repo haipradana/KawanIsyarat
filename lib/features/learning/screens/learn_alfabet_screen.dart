@@ -1,14 +1,16 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:go_router/go_router.dart';
 import '../../../app/constants.dart';
 import '../../../core/services/sibi_alphabet_service.dart';
 import '../../../core/services/bisindo_alphabet_service.dart';
+import '../../../core/providers/learning_progress_provider.dart';
 import 'alphabet_practice_screen.dart';
 
 
-class LearnAlfabetScreen extends StatefulWidget {
+class LearnAlfabetScreen extends ConsumerStatefulWidget {
   /// Optional fixed mode. If provided, the mode toggle is hidden and
   /// the screen starts directly in that mode.
   final AlphabetMode? initialMode;
@@ -16,10 +18,10 @@ class LearnAlfabetScreen extends StatefulWidget {
   const LearnAlfabetScreen({super.key, this.initialMode});
 
   @override
-  State<LearnAlfabetScreen> createState() => _LearnAlfabetScreenState();
+  ConsumerState<LearnAlfabetScreen> createState() => _LearnAlfabetScreenState();
 }
 
-class _LearnAlfabetScreenState extends State<LearnAlfabetScreen> {
+class _LearnAlfabetScreenState extends ConsumerState<LearnAlfabetScreen> {
   String? _selectedLetter;
   late AlphabetMode _mode;
 
@@ -46,6 +48,115 @@ class _LearnAlfabetScreenState extends State<LearnAlfabetScreen> {
   }
 
   bool get _fixedMode => widget.initialMode != null;
+
+  String get _currentModuleKey => _mode == AlphabetMode.sibi
+      ? LearningModule.alfabetSibi
+      : LearningModule.alfabetBisindo;
+
+  Widget _buildProgressSummary() {
+    final progress = ref.watch(learningProgressProvider);
+    final done = progress.countFor(_currentModuleKey);
+    final total = LearningModule.totalFor(_currentModuleKey);
+    final ratio = total == 0 ? 0.0 : (done / total).clamp(0.0, 1.0);
+    return Container(
+      padding: EdgeInsets.all(AppSpacing.lg),
+      decoration: BoxDecoration(
+        color: AppColors.surfaceContainerLow,
+        borderRadius: BorderRadius.circular(AppRadius.lg),
+        border: Border.all(color: AppColors.outlineVariant.withOpacity(0.3)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.emoji_events_rounded,
+                  color: AppColors.primary, size: 18),
+              SizedBox(width: 8),
+              Text(
+                'Progres $_modeName',
+                style: GoogleFonts.plusJakartaSans(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                  color: AppColors.textPrimary,
+                ),
+              ),
+              Spacer(),
+              Text(
+                '$done / $total selesai',
+                style: GoogleFonts.jetBrainsMono(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w700,
+                  color: AppColors.primary,
+                ),
+              ),
+              if (done > 0) ...[
+                SizedBox(width: 8),
+                InkWell(
+                  onTap: () => _confirmResetModule(),
+                  borderRadius: BorderRadius.circular(AppRadius.full),
+                  child: Padding(
+                    padding:
+                        EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    child: Icon(Icons.restart_alt_rounded,
+                        size: 16, color: AppColors.textSecondary),
+                  ),
+                ),
+              ],
+            ],
+          ),
+          SizedBox(height: 10),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(AppRadius.full),
+            child: LinearProgressIndicator(
+              value: ratio,
+              minHeight: 6,
+              backgroundColor: AppColors.surfaceContainerHigh,
+              valueColor: AlwaysStoppedAnimation<Color>(AppColors.primary),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _confirmResetModule() {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AppColors.surface,
+        shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(AppRadius.xxl)),
+        title: Text('Reset Progres $_modeName?',
+            style: GoogleFonts.plusJakartaSans(fontWeight: FontWeight.w700)),
+        content: Text(
+          'Semua huruf yang sudah selesai akan dihapus dari daftar.',
+          style: GoogleFonts.beVietnamPro(
+              fontSize: 14, color: AppColors.textSecondary),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: Text('Batal',
+                style: GoogleFonts.plusJakartaSans(
+                    fontWeight: FontWeight.w600,
+                    color: AppColors.textSecondary)),
+          ),
+          TextButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+              ref
+                  .read(learningProgressProvider.notifier)
+                  .resetModule(_currentModuleKey);
+            },
+            child: Text('Reset',
+                style: GoogleFonts.plusJakartaSans(
+                    fontWeight: FontWeight.w700, color: AppColors.error)),
+          ),
+        ],
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -91,6 +202,11 @@ class _LearnAlfabetScreenState extends State<LearnAlfabetScreen> {
 
             SizedBox(height: AppSpacing.xxl),
 
+            // ── Progress bar ────────────────────────────────────────────
+            _buildProgressSummary(),
+
+            SizedBox(height: AppSpacing.lg),
+
             // ── Letter grid ─────────────────────────────────────────────
             Text(
               'Pilih huruf untuk dipelajari',
@@ -115,11 +231,15 @@ class _LearnAlfabetScreenState extends State<LearnAlfabetScreen> {
               itemBuilder: (context, index) {
                 final letter = _letters[index];
                 final isSelected = _selectedLetter == letter;
+                final progress = ref.watch(learningProgressProvider);
+                final isDone =
+                    progress.isDone(_currentModuleKey, letter.toUpperCase());
                 return _LetterTile(
                   // Force rebuild on mode change so animation re-runs
                   key: ValueKey('${_mode.name}-$letter'),
                   letter: letter,
                   isSelected: isSelected,
+                  isDone: isDone,
                   delay: index * 20,
                   onTap: () {
                     setState(() => _selectedLetter = letter);
@@ -457,6 +577,7 @@ class _LearnAlfabetScreenState extends State<LearnAlfabetScreen> {
 class _LetterTile extends StatelessWidget {
   final String letter;
   final bool isSelected;
+  final bool isDone;
   final int delay;
   final VoidCallback onTap;
 
@@ -464,12 +585,18 @@ class _LetterTile extends StatelessWidget {
     super.key,
     required this.letter,
     required this.isSelected,
+    required this.isDone,
     required this.delay,
     required this.onTap,
   });
 
   @override
   Widget build(BuildContext context) {
+    final borderColor = isSelected
+        ? AppColors.primary
+        : (isDone
+            ? AppColors.success.withOpacity(0.5)
+            : AppColors.outlineVariant.withOpacity(0.3));
     return GestureDetector(
       onTap: onTap,
       child: AnimatedContainer(
@@ -477,14 +604,11 @@ class _LetterTile extends StatelessWidget {
         decoration: BoxDecoration(
           color: isSelected
               ? AppColors.primary
-              : AppColors.surfaceContainerLow,
+              : (isDone
+                  ? AppColors.success.withOpacity(0.08)
+                  : AppColors.surfaceContainerLow),
           borderRadius: BorderRadius.circular(AppRadius.md),
-          border: Border.all(
-            color: isSelected
-                ? AppColors.primary
-                : AppColors.outlineVariant.withOpacity(0.3),
-            width: 1,
-          ),
+          border: Border.all(color: borderColor, width: 1),
           boxShadow: isSelected
               ? [
                   BoxShadow(
@@ -495,15 +619,33 @@ class _LetterTile extends StatelessWidget {
                 ]
               : null,
         ),
-        child: Center(
-          child: Text(
-            letter,
-            style: GoogleFonts.plusJakartaSans(
-              fontSize: 20,
-              fontWeight: FontWeight.w700,
-              color: isSelected ? Colors.white : AppColors.textPrimary,
+        child: Stack(
+          children: [
+            Center(
+              child: Text(
+                letter,
+                style: GoogleFonts.plusJakartaSans(
+                  fontSize: 20,
+                  fontWeight: FontWeight.w700,
+                  color: isSelected
+                      ? Colors.white
+                      : (isDone
+                          ? AppColors.success
+                          : AppColors.textPrimary),
+                ),
+              ),
             ),
-          ),
+            if (isDone)
+              Positioned(
+                top: 3,
+                right: 3,
+                child: Icon(
+                  Icons.check_circle_rounded,
+                  size: 13,
+                  color: isSelected ? Colors.white : AppColors.success,
+                ),
+              ),
+          ],
         ),
       ),
     ).animate().fadeIn(

@@ -16,6 +16,33 @@ class ConversationEntry {
     required this.timestamp,
     required this.type,
   });
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'sourcePersona': sourcePersona.name,
+        'originalText': originalText,
+        'translatedText': translatedText,
+        'timestamp': timestamp.toIso8601String(),
+        'type': type.name,
+      };
+
+  factory ConversationEntry.fromJson(Map<String, dynamic> json) {
+    return ConversationEntry(
+      id: json['id'] as String,
+      sourcePersona: UserPersona.values.firstWhere(
+        (e) => e.name == json['sourcePersona'],
+        orElse: () => UserPersona.tuli,
+      ),
+      originalText: json['originalText'] as String? ?? '',
+      translatedText: json['translatedText'] as String? ?? '',
+      timestamp:
+          DateTime.tryParse(json['timestamp'] as String? ?? '') ?? DateTime.now(),
+      type: ConversationType.values.firstWhere(
+        (e) => e.name == json['type'],
+        orElse: () => ConversationType.signToText,
+      ),
+    );
+  }
 }
 
 enum ConversationType {

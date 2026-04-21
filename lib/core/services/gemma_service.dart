@@ -1,6 +1,9 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:ui' show Rect;
 import 'package:flutter/foundation.dart';
+import 'package:image/image.dart' as img;
 import '../ffi/cactus_wrapper.dart';
 import 'model_manager.dart';
 
@@ -81,25 +84,32 @@ Contoh output:
 - Tawarkan air putih atau tempat duduk yang nyaman.
 ''';
 
+  // Vision prompt dikecilkan — setiap token prompt = tambah KV cache RAM.
+  // Pixel 6a (6GB) OOM kalau prompt terlalu panjang + gambar besar.
   static const _visionCoachSystemPrompt = '''
-Kamu pelatih bahasa isyarat Indonesia (BISINDO & SIBI) yang ramah dan sabar.
-
-Kamu akan menerima:
-- Foto tangan pengguna
-- Huruf/kata target yang sedang dipelajari
-- Referensi bentuk isyarat yang BENAR untuk target tersebut
-- Hasil CNN detector (benar/salah) + jumlah percobaan
-
-Tugasmu: bandingkan foto dengan referensi, lalu beri umpan balik singkat (maks. 2 kalimat) dalam Bahasa Indonesia.
-
-Aturan:
-- Jika CNN bilang BENAR: beri apresiasi tulus + 1 tips penyempurnaan kecil (kejelasan, kemantapan, kecepatan).
-- Jika CNN bilang SALAH: bandingkan foto ke referensi, sebutkan SATU bagian paling jelas yang meleset (jari mana, arah mana, posisi mana), lalu cara perbaikinya.
-- Jika percobaan sudah >2 kali gagal: tambahkan kalimat penyemangat lembut, jangan menghakimi.
-- JANGAN mengarang referensi baru. Pakai deskripsi referensi yang diberikan.
-- JANGAN jelaskan teori. Langsung ke saran praktis.
-- Gunakan kata "kamu" yang hangat, seperti teman yang mendampingi.
+Kamu pelatih isyarat BISINDO/SIBI. Beri umpan balik singkat (maks 2 kalimat) dalam Bahasa Indonesia.
+BENAR: apresiasi + 1 tips kecil. SALAH: sebutkan 1 hal yang meleset + cara perbaiki.
+Percobaan >2x gagal: semangati. Langsung saran praktis, jangan teori.
 ''';
+
+  /// Text-only coach prompt — dipakai kalau vision dinonaktifkan (device RAM rendah).
+  /// Gemma bicara LANGSUNG ke pengguna sebagai pelatih. JANGAN mention CNN/model/deteksi.
+  static const _textCoachSystemPrompt = '''
+Kamu pelatih isyarat BISINDO/SIBI yang ramah. Kamu berbicara LANGSUNG kepada pengguna.
+JANGAN pernah menyebut kata: "CNN", "model", "AI", "deteksi", "output", "input". Pengguna tidak tahu istilah itu.
+Pakai kata ganti "kamu" — seolah kamu melihat pengguna membuat isyarat.
+
+Kalau status BENAR → puji pengguna (contoh: "Bagus, isyarat kamu sudah tepat!") + 1 tips untuk lebih mantap.
+Kalau status SALAH → tunjuk 1 perbedaan bentuk yang perlu diperbaiki + cara memperbaikinya (contoh: "Tanganmu masih membentuk huruf E. Untuk A, kepalkan tangan lalu dekatkan ibu jari kedua tangan sampai menempel").
+
+Maks 2 kalimat. Bahasa Indonesia santai. Jangan pakai bullet, markdown, atau bold.
+''';
+
+  /// Vision dinonaktifkan default karena memakan ~300MB extra RAM untuk
+  /// vision encoder weights + prefill peak. Pixel 6a sering crash dengan
+  /// system-wide memory pressure event saat path ini dipakai.
+  /// Bisa di-toggle via setter kalau user ingin coba.
+  static bool useVisionCoach = false;
 
   /// Referensi bentuk isyarat per huruf/kata.
   /// Dipakai sebagai ground-truth yang di-inject ke prompt — Gemma 4 tidak tahu
@@ -185,15 +195,11 @@ Aturan:
   };
 
   static const _vocabularyHelperPrompt = '''
-Kamu asisten yang menjelaskan kosakata Bahasa Indonesia kepada teman Tuli.
-Gunakan kalimat sangat sederhana, pendek, dan jelas. Hindari istilah asing.
-Jika katanya istilah teknis (hukum, keuangan, medis), beri analogi sehari-hari.
-
-Format jawaban (wajib):
-Arti: [1 kalimat singkat]
-Contoh: [1 kalimat contoh penggunaan sehari-hari]
-
-Jangan tambahkan kalimat lain di luar format itu.
+Jelaskan kata Bahasa Indonesia untuk teman Tuli. Bahasa sederhana, kalimat pendek.
+Format jawaban:
+Arti: [penjelasan singkat menyebut kata tsb]
+Contoh: [1 kalimat contoh]
+Jangan tambah baris lain.
 ''';
 
   static const _simplifySystemPrompt = '''
@@ -249,7 +255,9 @@ Jawab HANYA dengan teks transkripsi, tanpa penjelasan atau komentar.
       onProgress?.call(0.3);
 
       // Optimasi RAM untuk Pixel 6a (6GB):
-      // - n_ctx: 512 → kurangi KV cache window (default 4096+)
+      // - n_ctx: 512 → cukup untuk vision di image 168×168 (≈144 image tokens)
+      //   + prompt pendek + response. n_ctx tinggi tidak membuat lebih akurat,
+      //   hanya tambah KV cache RAM & prefill peak.
       // - memory_f32: false → KV cache FP16 (hemat 50% KV cache RAM)
       // - batch_size: 1 → kurangi memory spike
       // - n_threads: 4 → pakai 4 dari 8 core
@@ -306,6 +314,37 @@ Jawab HANYA dengan teks transkripsi, tanpa penjelasan atau komentar.
       }
     } catch (e) {
       debugPrint('[GemmaService] Exception during inference: $e');
+      return null;
+    }
+  }
+
+  /// Versi _infer lebih ringan untuk vocab helper.
+  /// maxTokens dikurangi, tapi stop sequences tidak pakai \n\n
+  /// supaya baris Contoh tetap bisa digenerate.
+  Future<String?> _inferShort(String systemPrompt, String userMessage) async {
+    if (!_isLoaded || _model == null) return null;
+    try {
+      _model!.reset();
+      final response = await _model!.complete(
+        [
+          ChatMessage(role: 'system', content: systemPrompt),
+          ChatMessage(role: 'user', content: userMessage),
+        ],
+        maxTokens: 80,
+        temperature: 0.3,
+        stopSequences: ['\n\n\n'], // toleran — tidak potong Contoh
+
+      );
+      if (response.success) {
+        final cleaned = _cleanResponse(response.text);
+        debugPrint('[GemmaService] Short inference OK: ${cleaned.length} chars, '
+            '${response.decodeTps.toStringAsFixed(1)} tok/s, '
+            '${response.totalTimeMs.toStringAsFixed(0)}ms');
+        return cleaned;
+      }
+      return null;
+    } catch (e) {
+      debugPrint('[GemmaService] Short inference exception: $e');
       return null;
     }
   }
@@ -539,6 +578,120 @@ Jawab HANYA dengan teks transkripsi, tanpa penjelasan atau komentar.
     return tips.take(4).toList();
   }
 
+  // ---- Image crop+resize helper ----
+
+  /// Crop gambar ke bounding box tangan (+ padding), resize ke maxDim, encode JPEG.
+  /// KRUSIAL untuk menghindari OOM pada Gemma 4 vision encoder.
+  ///
+  /// Gemma 4 (SigLIP-base) tokenize gambar jadi ~16×16 = 256 patch tokens terlepas
+  /// dari input resolution. Jadi resize ke 224×224 cukup — tidak ada gain untuk
+  /// resolusi lebih tinggi, malah tambah memory vision encoder.
+  ///
+  /// Dipakai `image` package (pure Dart) untuk:
+  ///   decode JPEG → crop → resize → encode JPEG.
+  /// Lebih cepat + predictable memory dibanding Canvas GPU roundtrip + PNG encode.
+  ///
+  /// [handBbox] — normalized bounding box [0,1] dari landmark detector.
+  ///   Jika null, fallback ke center-crop 70% dengan sedikit bias atas (tangan biasanya di atas tengah).
+  /// [padding] — persentase padding sekeliling bbox (0.25 = 25% setiap sisi).
+  static Future<String> _cropAndResizeForVision(
+    String sourcePath, {
+    Rect? handBbox,
+    int maxDim = 224,
+    double padding = 0.25,
+    int jpegQuality = 82,
+  }) async {
+    final sw = DateTime.now();
+    final bytes = await File(sourcePath).readAsBytes();
+
+    // Decode via image package — lossless dari JPEG → RGBA in-memory
+    final decoded = img.decodeImage(bytes);
+    if (decoded == null) {
+      debugPrint('[GemmaService] decodeImage null, using original');
+      return sourcePath;
+    }
+    final imgW = decoded.width;
+    final imgH = decoded.height;
+
+    // Hitung crop region dalam pixel
+    late int cropX, cropY, cropW, cropH;
+
+    if (handBbox != null && handBbox.width > 0.01 && handBbox.height > 0.01) {
+      // Expand bbox ke square supaya resize 224×224 tidak stretching
+      final bboxCx = (handBbox.left + handBbox.right) / 2.0;
+      final bboxCy = (handBbox.top + handBbox.bottom) / 2.0;
+      final bboxSide =
+          (handBbox.width > handBbox.height ? handBbox.width : handBbox.height) *
+              (1.0 + padding * 2);
+
+      final halfSide = bboxSide / 2.0;
+      final leftN = (bboxCx - halfSide).clamp(0.0, 1.0);
+      final topN = (bboxCy - halfSide).clamp(0.0, 1.0);
+      final rightN = (bboxCx + halfSide).clamp(0.0, 1.0);
+      final bottomN = (bboxCy + halfSide).clamp(0.0, 1.0);
+
+      cropX = (leftN * imgW).round().clamp(0, imgW - 1);
+      cropY = (topN * imgH).round().clamp(0, imgH - 1);
+      cropW = ((rightN - leftN) * imgW).round().clamp(1, imgW - cropX);
+      cropH = ((bottomN - topN) * imgH).round().clamp(1, imgH - cropY);
+
+      debugPrint('[GemmaService] Crop (square) to hand bbox: '
+          '${cropX},${cropY} ${cropW}x$cropH px '
+          '(bbox ${handBbox.width.toStringAsFixed(2)}x${handBbox.height.toStringAsFixed(2)})');
+    } else {
+      // Fallback: square center-crop 70%, bias ke atas 10% (tangan biasanya upper)
+      final side = ((imgW < imgH ? imgW : imgH) * 0.70).round();
+      cropW = side;
+      cropH = side;
+      cropX = (imgW - side) ~/ 2;
+      cropY = ((imgH - side) ~/ 2 - side * 0.1).round().clamp(0, imgH - side);
+      debugPrint('[GemmaService] No hand bbox, square center-crop: ${cropW}x$cropH px');
+    }
+
+    // Crop → resize → JPEG (pure Dart, 1 pass)
+    final cropped = img.copyCrop(decoded,
+        x: cropX, y: cropY, width: cropW, height: cropH);
+    final resized = img.copyResize(cropped,
+        width: maxDim,
+        height: maxDim,
+        interpolation: img.Interpolation.linear);
+    final jpegBytes = img.encodeJpg(resized, quality: jpegQuality);
+
+    final dir = File(sourcePath).parent;
+    final outPath =
+        '${dir.path}/sign_v_${DateTime.now().millisecondsSinceEpoch}.jpg';
+    await File(outPath).writeAsBytes(jpegBytes);
+
+    final elapsed = DateTime.now().difference(sw).inMilliseconds;
+    debugPrint('[GemmaService] vision img: ${bytes.length ~/ 1024}KB → '
+        '${jpegBytes.length ~/ 1024}KB @ ${maxDim}x$maxDim JPEG q$jpegQuality '
+        '(${elapsed}ms)');
+
+    return outPath;
+  }
+
+  /// Hapus file sign_v_*.jpg lama dari temp dir untuk mencegah akumulasi.
+  /// Dipanggil sebelum crop baru.
+  static Future<void> _cleanStaleVisionTemps(Directory tempDir) async {
+    try {
+      final entries = tempDir.listSync();
+      final now = DateTime.now().millisecondsSinceEpoch;
+      for (final e in entries) {
+        if (e is File) {
+          final name = e.path.split('/').last;
+          if ((name.startsWith('sign_v_') || name.startsWith('sign_cropped_')) &&
+              (name.endsWith('.jpg') || name.endsWith('.png'))) {
+            final stat = e.statSync();
+            // Hapus yang lebih dari 60 detik — aman karena inference ≤ 30s
+            if (now - stat.modified.millisecondsSinceEpoch > 60000) {
+              try { e.deleteSync(); } catch (_) {}
+            }
+          }
+        }
+      }
+    } catch (_) {}
+  }
+
   /// Gemma 4 Vision — Sign Coach. Evaluasi foto tangan pengguna dan berikan tips.
   ///
   /// [imagePath] — absolute path ke JPEG/PNG hasil CameraController.takePicture.
@@ -547,61 +700,76 @@ Jawab HANYA dengan teks transkripsi, tanpa penjelasan atau komentar.
   /// [mode] — "sibi" | "bisindo_alfabet" | "bisindo_kata" untuk konteks prompt.
   /// [attemptCount] — percobaan ke-berapa untuk target yang sama (mulai dari 1).
   ///   Dipakai Gemma untuk menyesuaikan tone (makin banyak gagal → makin menyemangati).
+  /// [handBbox] — normalized bounding box [0,1] dari hand landmark detector.
+  ///   Jika tersedia, gambar akan di-crop ke area tangan saja sebelum dikirim ke Gemma.
   Future<String?> reviewSignImage({
     required String imagePath,
     required String targetLabel,
     String? detectedLabel,
     String mode = 'bisindo_alfabet',
     int attemptCount = 1,
+    Rect? handBbox,
   }) async {
     if (!_isLoaded || _model == null) return null;
+
+    // Default: text-only coach (vision nonaktif → hindari OOM di device low-RAM).
+    // Kualitas tetap bagus karena CNN + referensi bentuk di-inject ke prompt.
+    if (!useVisionCoach) {
+      return _reviewSignTextOnly(
+        targetLabel: targetLabel,
+        detectedLabel: detectedLabel,
+        mode: mode,
+        attemptCount: attemptCount,
+      );
+    }
+
     final file = File(imagePath);
     if (!await file.exists()) {
       debugPrint('[GemmaService] reviewSignImage: file not found $imagePath');
       return null;
     }
 
-    final modeLabel = switch (mode) {
-      'sibi' => 'SIBI (1 tangan)',
-      'bisindo_kata' => 'BISINDO (kata/gerakan, 2 tangan)',
-      _ => 'BISINDO (alfabet, 2 tangan)',
-    };
+    // ── Crop ke hand bbox + resize + JPEG encode SEBELUM kirim ke vision encoder ──
+    // Tanpa ini, Pixel 6a (6GB) OOM karena vision encoder allocate 300MB+
+    // untuk patch embeddings dari gambar full-res.
+    // Bersihkan file crop lama dulu (mencegah akumulasi dari percobaan berulang).
+    unawaited(_cleanStaleVisionTemps(File(imagePath).parent));
+    String visionImagePath;
+    try {
+      // 168 = 12×14 (multiple of SigLIP patch=14) → 144 image tokens (vs 256 @ 224).
+      // Hemat ~45% working RAM di attention + prefill, kritis di Pixel 6a.
+      visionImagePath = await _cropAndResizeForVision(
+        imagePath,
+        handBbox: handBbox,
+        maxDim: 168,
+        jpegQuality: 80,
+      );
+    } catch (e) {
+      debugPrint('[GemmaService] crop+resize failed, using original: $e');
+      visionImagePath = imagePath;
+    }
 
     final isCorrect = detectedLabel != null &&
         detectedLabel.toUpperCase() == targetLabel.toUpperCase();
-    final detectionLine = detectedLabel == null
-        ? 'Hasil CNN: tangan belum terdeteksi dengan jelas.'
+    final cnnResult = detectedLabel == null
+        ? 'CNN: tidak terdeteksi'
         : (isCorrect
-            ? 'Hasil CNN: BENAR (terdeteksi "$detectedLabel", sesuai target).'
-            : 'Hasil CNN: SALAH (terdeteksi "$detectedLabel", target seharusnya "$targetLabel").');
+            ? 'CNN: BENAR ($detectedLabel)'
+            : 'CNN: SALAH ($detectedLabel, target $targetLabel)');
 
     final reference = _referenceFor(targetLabel, mode);
+    final attemptNote = attemptCount > 2 ? ' Percobaan ke-$attemptCount, semangati.' : '';
 
-    String attemptLine;
-    if (attemptCount <= 1) {
-      attemptLine = 'Ini percobaan pertama.';
-    } else if (attemptCount == 2) {
-      attemptLine = 'Ini percobaan ke-2. Tetap rileks.';
-    } else {
-      attemptLine = 'Ini percobaan ke-$attemptCount. Pengguna sudah mencoba berulang — beri dorongan positif.';
-    }
-
-    final userMessage = '''
-Mode: $modeLabel
-Target: $targetLabel
-$attemptLine
-
-Referensi bentuk "$targetLabel" yang BENAR:
-$reference
-
-$detectionLine
-
-Bandingkan foto tangan pengguna dengan referensi di atas. Beri evaluasi singkat (maks. 2 kalimat) dalam Bahasa Indonesia.
-''';
+    // User message dikecilkan drastis — setiap karakter = token = RAM.
+    final userMessage =
+        'Target: $targetLabel. Referensi: $reference. $cnnResult.$attemptNote'
+        ' Evaluasi foto, maks 2 kalimat.';
 
     try {
       _model!.reset();
-      debugPrint('[GemmaService] reviewSignImage: target=$targetLabel detected=$detectedLabel img=$imagePath');
+      debugPrint('[GemmaService] reviewSignImage: target=$targetLabel detected=$detectedLabel '
+          'bbox=${handBbox != null ? "${handBbox.left.toStringAsFixed(2)},${handBbox.top.toStringAsFixed(2)}-${handBbox.right.toStringAsFixed(2)},${handBbox.bottom.toStringAsFixed(2)}" : "none"} '
+          'img=$visionImagePath');
 
       final response = await _model!.complete(
         [
@@ -609,25 +777,106 @@ Bandingkan foto tangan pengguna dengan referensi di atas. Beri evaluasi singkat 
           ChatMessage(
             role: 'user',
             content: userMessage,
-            images: [file.absolute.path],
+            images: [visionImagePath],
           ),
         ],
-        maxTokens: 120,
-        temperature: 0.4,
-        stopSequences: ['\n\n\n'],
+        maxTokens: 60, // 2 kalimat = ~40 token, 60 cukup dengan margin
+        temperature: 0.3,
+        stopSequences: ['\n\n'],
       );
+
+      // Cleanup temp file
+      if (visionImagePath != imagePath) {
+        try { File(visionImagePath).deleteSync(); } catch (_) {}
+      }
 
       if (response.success && response.text.isNotEmpty) {
         final cleaned = _cleanResponse(response.text);
         debugPrint('[GemmaService] reviewSignImage OK: ${cleaned.length} chars, '
             '${response.decodeTps.toStringAsFixed(1)} tok/s, '
-            '${response.totalTimeMs.toStringAsFixed(0)}ms');
+            '${response.totalTimeMs.toStringAsFixed(0)}ms, '
+            '${response.ramUsageMb.toStringAsFixed(0)}MB RAM');
         return cleaned;
       }
       debugPrint('[GemmaService] reviewSignImage failed: ${response.error}');
       return null;
     } catch (e) {
       debugPrint('[GemmaService] reviewSignImage exception: $e');
+      // Cleanup on error too
+      if (visionImagePath != imagePath) {
+        try { File(visionImagePath).deleteSync(); } catch (_) {}
+      }
+      return null;
+    }
+  }
+
+  /// Text-only coach — alternatif `reviewSignImage` tanpa vision encoder.
+  /// Pakai hasil CNN + referensi bentuk target & bentuk yang terdeteksi
+  /// supaya Gemma bisa kontras dua deskripsi tanpa lihat foto.
+  /// RAM stabil (~1.9GB), tidak OOM di Pixel 6a.
+  Future<String?> _reviewSignTextOnly({
+    required String targetLabel,
+    String? detectedLabel,
+    required String mode,
+    required int attemptCount,
+  }) async {
+    if (!_isLoaded || _model == null) return null;
+
+    final isCorrect = detectedLabel != null &&
+        detectedLabel.toUpperCase() == targetLabel.toUpperCase();
+    final targetRef = _referenceFor(targetLabel, mode);
+
+    String statusSection;
+    if (detectedLabel == null) {
+      statusSection =
+          'Status: tangan pengguna belum terlihat jelas. Minta dia memposisikan tangan lebih ke tengah frame.';
+    } else if (isCorrect) {
+      statusSection = 'Status: BENAR — isyarat pengguna sudah sesuai target "$targetLabel".';
+    } else {
+      final detectedRef = _referenceFor(detectedLabel, mode);
+      statusSection =
+          'Status: SALAH — pengguna membuat bentuk yang lebih mirip huruf "$detectedLabel" ($detectedRef), '
+          'padahal target huruf "$targetLabel" ($targetRef). '
+          'Bandingkan dua deskripsi itu, tunjukkan 1 perbedaan kunci yang harus diperbaiki pengguna.';
+    }
+
+    final attemptNote = attemptCount > 2
+        ? ' Ini percobaan ke-$attemptCount — tambahkan kalimat menyemangati.'
+        : '';
+
+    // Pesan ke Gemma: hanya info status + referensi target, tidak bocor istilah internal.
+    final userMessage =
+        'Pengguna sedang belajar huruf "$targetLabel".\n'
+        'Referensi bentuk "$targetLabel" yang benar: $targetRef\n\n'
+        '$statusSection$attemptNote\n\n'
+        'Balas dengan 1-2 kalimat langsung ke pengguna.';
+
+    try {
+      _model!.reset();
+      debugPrint('[GemmaService] reviewSignTextOnly: target=$targetLabel '
+          'detected=$detectedLabel attempt=$attemptCount');
+
+      final response = await _model!.complete(
+        [
+          ChatMessage(role: 'system', content: _textCoachSystemPrompt),
+          ChatMessage(role: 'user', content: userMessage),
+        ],
+        maxTokens: 80,
+        temperature: 0.35,
+        stopSequences: ['\n\n'],
+      );
+
+      if (response.success && response.text.isNotEmpty) {
+        final cleaned = _cleanResponse(response.text);
+        debugPrint('[GemmaService] reviewSignTextOnly OK: ${cleaned.length} chars, '
+            '${response.decodeTps.toStringAsFixed(1)} tok/s, '
+            '${response.totalTimeMs.toStringAsFixed(0)}ms');
+        return cleaned;
+      }
+      debugPrint('[GemmaService] reviewSignTextOnly failed: ${response.error}');
+      return null;
+    } catch (e) {
+      debugPrint('[GemmaService] reviewSignTextOnly exception: $e');
       return null;
     }
   }
@@ -639,25 +888,43 @@ Bandingkan foto tangan pengguna dengan referensi di atas. Beri evaluasi singkat 
     if (q.isEmpty) return null;
     if (!_isLoaded || _model == null) return null;
 
-    final raw = await _infer(_vocabularyHelperPrompt, q);
+    // _inferShort: maxTokens dikurangi, stop lebih awal → ~30% lebih cepat
+    final raw = await _inferShort(_vocabularyHelperPrompt, q);
     if (raw == null || raw.isEmpty) return null;
 
     String? meaning;
     String? example;
-    for (final rawLine in raw.split('\n')) {
-      final line = rawLine.trim();
-      if (line.isEmpty) continue;
+    final lines = raw
+        .split('\n')
+        .map((l) => l.trim())
+        .where((l) => l.isNotEmpty)
+        .toList();
+
+    for (final line in lines) {
       final lower = line.toLowerCase();
       if (lower.startsWith('arti:')) {
         meaning = line.substring(line.indexOf(':') + 1).trim();
       } else if (lower.startsWith('contoh:')) {
-        example = line.substring(line.indexOf(':') + 1).trim();
+        // Strip kutip awal/akhir kalau ada
+        var ex = line.substring(line.indexOf(':') + 1).trim();
+        ex = ex.replaceAll(RegExp(r'^["\u201c\u201d]+|["\u201c\u201d]+$'), '');
+        example = ex;
       }
     }
 
-    // Fallback: kalau format tidak pas, taruh semuanya ke meaning.
+    // Fallback toleran: model kadang tidak output prefix "Arti:" / "Contoh:"
     if (meaning == null || meaning.isEmpty) {
-      meaning = raw.trim();
+      if (lines.length >= 2) {
+        // Baris pertama = arti, baris kedua = contoh
+        meaning = lines[0];
+        example ??= lines[1];
+      } else {
+        meaning = raw.trim();
+      }
+    }
+    // Kalau example masih null dan ada baris ke-2 yang belum dipakai
+    if (example == null && lines.length >= 2 && meaning == lines[0]) {
+      example = lines[1];
     }
 
     return VocabularyExplanation(

@@ -23,6 +23,15 @@ class HistoryScreen extends ConsumerWidget {
       appBar: KawanAppBar(
         title: 'Riwayat',
         showBackButton: true,
+        actions: [
+          if (entries.isNotEmpty)
+            IconButton(
+              icon: Icon(Icons.delete_outline_rounded,
+                  color: AppColors.textPrimary),
+              tooltip: 'Hapus semua riwayat',
+              onPressed: () => _confirmClear(context, ref),
+            ),
+        ],
       ),
       body: entries.isEmpty
           ? _buildEmptyState()
@@ -219,6 +228,42 @@ class HistoryScreen extends ConsumerWidget {
       return '${diff.inHours} jam lalu';
     }
     return DateFormat('dd MMM, HH:mm', 'id').format(timestamp);
+  }
+
+  void _confirmClear(BuildContext context, WidgetRef ref) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AppColors.surface,
+        shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(AppRadius.xxl)),
+        title: Text('Hapus Semua Riwayat?',
+            style: GoogleFonts.plusJakartaSans(fontWeight: FontWeight.w700)),
+        content: Text(
+          'Semua riwayat percakapan akan dihapus permanen dari perangkat.',
+          style: GoogleFonts.beVietnamPro(
+              fontSize: 14, color: AppColors.textSecondary),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: Text('Batal',
+                style: GoogleFonts.plusJakartaSans(
+                    fontWeight: FontWeight.w600,
+                    color: AppColors.textSecondary)),
+          ),
+          TextButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+              ref.read(conversationHistoryProvider.notifier).clearAll();
+            },
+            child: Text('Hapus',
+                style: GoogleFonts.plusJakartaSans(
+                    fontWeight: FontWeight.w700, color: AppColors.error)),
+          ),
+        ],
+      ),
+    );
   }
 
   void _handleNavTap(BuildContext context, int index) {
