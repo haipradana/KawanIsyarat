@@ -54,6 +54,11 @@ class BisindoAlphabetService {
   // Single-hand fallback needs higher confidence (training data is mostly 2-hand).
   static const double _singleHandConfThreshold = 0.65;
 
+  /// Last detected hand(s) bounding box in portrait-normalized [0,1] coords.
+  /// For 2-hand detection, this covers both hands.
+  Rect? _lastBbox;
+  Rect? get lastHandBbox => _lastBbox;
+
   bool get isLoaded => _isLoaded;
   List<String> get labels => List.unmodifiable(_labels);
 
@@ -137,6 +142,9 @@ class BisindoAlphabetService {
         final rightCoords = cx1 <= cx2 ? coords2 : coords1;
 
         features = _buildTwoHandFeaturesFromCoords(leftCoords, rightCoords);
+
+        // Compute combined bbox covering both hands
+        _lastBbox = _computeBboxFromCoords([coords1, coords2]);
       } else {
         // Single hand detected — fallback path.
         // BISINDO alphabet uses 2 hands, but training augment_single_hand
@@ -144,6 +152,10 @@ class BisindoAlphabetService {
         // Apply higher confidence threshold to avoid false positives.
         features = _buildSingleHandFeatures(
             hands[0].landmarks, sensorOrientation, isFrontCamera);
+
+        // Compute bbox from single hand
+        final coords = _extractCoords(hands[0].landmarks, sensorOrientation, isFrontCamera);
+        if (coords != null) _lastBbox = _computeBboxFromCoords([coords]);
       }
 
       if (features == null) return null;
@@ -179,6 +191,23 @@ class BisindoAlphabetService {
       debugPrint('[BISINDO-ABC] Detection error: $e');
       return null;
     }
+  }
+
+  /// Compute combined bounding box from multiple hands' coords.
+  Rect? _computeBboxFromCoords(List<List<double>> allCoords) {
+    double minX = double.infinity, minY = double.infinity;
+    double maxX = double.negativeInfinity, maxY = double.negativeInfinity;
+    for (final coords in allCoords) {
+      for (int i = 0; i < _numLandmarks; i++) {
+        final x = coords[i * 2];
+        final y = coords[i * 2 + 1];
+        if (x < minX) minX = x;
+        if (x > maxX) maxX = x;
+        if (y < minY) minY = y;
+        if (y > maxY) maxY = y;
+      }
+    }
+    return Rect.fromLTRB(minX, minY, maxX, maxY);
   }
 
   /// Mean of x-coordinates (every other element starting at 0).

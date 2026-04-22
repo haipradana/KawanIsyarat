@@ -152,29 +152,25 @@ class LandingScreen extends ConsumerWidget {
   Widget _buildHeroSection() {
     return Column(
       children: [
-        // App icon
+        // App logo
         Container(
-          width: 96,
-          height: 96,
+          width: 104,
+          height: 104,
           decoration: BoxDecoration(
-            gradient: LinearGradient(
-              colors: [AppColors.primary, AppColors.primaryLight],
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-            ),
+            color: Colors.white,
             borderRadius: BorderRadius.circular(28),
             boxShadow: [
               BoxShadow(
-                color: AppColors.primary.withOpacity(0.3),
+                color: AppColors.primary.withOpacity(0.28),
                 blurRadius: 40,
                 offset: Offset(0, 16),
               ),
             ],
           ),
-          child: Icon(
-            Icons.sign_language_rounded,
-            color: Colors.white,
-            size: 48,
+          clipBehavior: Clip.antiAlias,
+          child: Image.asset(
+            'assets/images/logo_kawanisyarat.png',
+            fit: BoxFit.cover,
           ),
         )
             .animate()

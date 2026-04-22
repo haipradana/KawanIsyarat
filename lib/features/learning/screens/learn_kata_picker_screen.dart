@@ -5,6 +5,7 @@ import 'package:flutter_animate/flutter_animate.dart';
 import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../../../app/constants.dart';
+import '../widgets/bisindo_video_preview.dart';
 
 /// Pre-screen untuk fitur Belajar Kata BISINDO.
 ///
@@ -197,44 +198,8 @@ class _LearnKataPickerScreenState extends State<LearnKataPickerScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Placeholder video/image area
-          AspectRatio(
-            aspectRatio: 16 / 10,
-            child: Container(
-              decoration: BoxDecoration(
-                color: AppColors.textPrimary.withOpacity(0.06),
-                borderRadius: BorderRadius.circular(AppRadius.lg),
-                border: Border.all(
-                    color: AppColors.textPrimary.withOpacity(0.08)),
-              ),
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(Icons.play_circle_outline_rounded,
-                      size: 56,
-                      color: AppColors.primary.withOpacity(0.7)),
-                  SizedBox(height: 10),
-                  Text(
-                    'Pratinjau Isyarat',
-                    style: GoogleFonts.plusJakartaSans(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w700,
-                      color: AppColors.primary.withOpacity(0.8),
-                      letterSpacing: 1.1,
-                    ),
-                  ),
-                  SizedBox(height: 2),
-                  Text(
-                    'Video demo akan segera hadir',
-                    style: GoogleFonts.beVietnamPro(
-                      fontSize: 11,
-                      color: AppColors.textPrimary.withOpacity(0.45),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
+          // Video pratinjau (auto fallback ke placeholder kalau asset belum ada)
+          BisindoVideoPreview(word: label, aspectRatio: 16 / 10),
           SizedBox(height: AppSpacing.lg),
 
           // Label

@@ -21,6 +21,7 @@ import '../features/learning/screens/learn_artikulasi_screen.dart';
 import '../features/learning/screens/vocabulary_helper_screen.dart';
 import '../features/history/screens/history_screen.dart';
 import '../features/settings/screens/settings_screen.dart';
+import '../features/emergency/screens/emergency_quick_sign_screen.dart';
 
 final routerProvider = Provider<GoRouter>((ref) {
   final persona = ref.watch(personaProvider);
@@ -96,6 +97,7 @@ final routerProvider = Provider<GoRouter>((ref) {
       _slideRoute('/learn/idiom', LearnIdiomScreen()),
       _slideRoute('/learn/artikulasi', LearnArtikulasiScreen()),
       _slideRoute('/learn/kamus', VocabularyHelperScreen()),
+      _slideRoute('/sos', EmergencyQuickSignScreen()),
       _slideRoute('/history', HistoryScreen()),
       _slideRoute('/settings', SettingsScreen()),
     ],

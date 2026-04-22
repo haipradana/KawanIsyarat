@@ -82,14 +82,10 @@ class PersonaSelectionScreen extends ConsumerWidget {
     return Column(
       children: [
         Container(
-          width: 56,
-          height: 56,
+          width: 64,
+          height: 64,
           decoration: BoxDecoration(
-            gradient: LinearGradient(
-              colors: [AppColors.primaryDark, AppColors.primaryContainer],
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-            ),
+            color: Colors.white,
             borderRadius: BorderRadius.circular(16),
             boxShadow: [
               BoxShadow(
@@ -99,8 +95,10 @@ class PersonaSelectionScreen extends ConsumerWidget {
               ),
             ],
           ),
-          child: Center(
-            child: Icon(Icons.sign_language_rounded, color: Colors.white, size: 28),
+          clipBehavior: Clip.antiAlias,
+          child: Image.asset(
+            'assets/images/logo_kawanisyarat.png',
+            fit: BoxFit.cover,
           ),
         )
             .animate()

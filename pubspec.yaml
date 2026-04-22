@@ -32,6 +32,7 @@ dependencies:
   google_mlkit_pose_detection: ^0.12.0
   google_mlkit_commons: ^0.8.0
   hand_landmarker: ^2.1.2
+  video_player: ^2.9.1
   # flutter_gemma removed — using Cactus SDK for Gemma. Re-add if switching back to LiteRT LM.
 
 dev_dependencies:
@@ -46,4 +47,7 @@ flutter:
 
   assets:
     - assets/images/
+    - assets/images/alfabet/sibi/
+    - assets/images/alfabet/bisindo/
     - assets/models/
+    - assets/videos/bisindo/

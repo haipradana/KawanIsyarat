@@ -8,6 +8,7 @@ import '../../../core/services/sibi_alphabet_service.dart';
 import '../../../core/services/bisindo_alphabet_service.dart';
 import '../../../core/providers/learning_progress_provider.dart';
 import 'alphabet_practice_screen.dart';
+import '../widgets/alphabet_reference_image.dart';
 
 
 class LearnAlfabetScreen extends ConsumerStatefulWidget {
@@ -494,44 +495,11 @@ class _LearnAlfabetScreenState extends ConsumerState<LearnAlfabetScreen> {
           ),
           SizedBox(height: AppSpacing.lg),
 
-          // Reference placeholder
-          Container(
+          // Reference image (auto fallback ke placeholder kalau asset belum ada)
+          AlphabetReferenceImage(
+            letter: letter,
+            mode: _mode,
             height: 200,
-            width: double.infinity,
-            decoration: BoxDecoration(
-              color: AppColors.surfaceContainerHigh,
-              borderRadius: BorderRadius.circular(AppRadius.lg),
-            ),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(
-                  _mode == AlphabetMode.sibi
-                      ? Icons.front_hand_rounded
-                      : Icons.sign_language_rounded,
-                  size: 56,
-                  color: AppColors.outlineVariant,
-                ),
-                SizedBox(height: AppSpacing.sm),
-                Text(
-                  'Isyarat huruf "$letter"',
-                  style: GoogleFonts.beVietnamPro(
-                    fontSize: 14,
-                    color: AppColors.textSecondary,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  _mode == AlphabetMode.sibi
-                      ? 'Gunakan 1 tangan'
-                      : 'Gunakan 2 tangan',
-                  style: GoogleFonts.beVietnamPro(
-                    fontSize: 11,
-                    color: AppColors.outlineVariant,
-                  ),
-                ),
-              ],
-            ),
           ),
           SizedBox(height: AppSpacing.xl),
 

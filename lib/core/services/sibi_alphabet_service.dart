@@ -44,6 +44,11 @@ class SibiAlphabetService {
 
   static const double _confThreshold = 0.5;
 
+  /// Last detected hand bounding box in portrait-normalized [0,1] coords.
+  /// Updated on every successful detection. Used for cropping images for vision.
+  Rect? _lastBbox;
+  Rect? get lastHandBbox => _lastBbox;
+
   bool get isLoaded => _isLoaded;
   List<String> get labels => List.unmodifiable(_labels);
 
@@ -111,6 +116,9 @@ class SibiAlphabetService {
       final features = _normalizeHand(landmarks, sensorOrientation, isFrontCamera);
       if (features == null) return null;
 
+      // Compute hand bounding box in portrait-space for vision cropping
+      _lastBbox = _computeBbox(landmarks, sensorOrientation, isFrontCamera);
+
       // 3. Jalankan inference (float32)
       final input = [features]; // [1, 42]
       final output = [List<double>.filled(_labels.length, 0.0)]; // [1, 24]
@@ -137,6 +145,23 @@ class SibiAlphabetService {
       debugPrint('[SIBI] Detection error: $e');
       return null;
     }
+  }
+
+  /// Compute bounding box dari raw landmarks dalam portrait-space [0,1].
+  Rect? _computeBbox(List landmarks, int sensorOrientation, bool isFrontCamera) {
+    if (landmarks.length < 21) return null;
+    double minX = double.infinity, minY = double.infinity;
+    double maxX = double.negativeInfinity, maxY = double.negativeInfinity;
+    for (int i = 0; i < 21; i++) {
+      final rawX = (landmarks[i].x as num).toDouble();
+      final rawY = (landmarks[i].y as num).toDouble();
+      final p = _toPortraitSpace(rawX, rawY, sensorOrientation, isFrontCamera);
+      if (p.$1 < minX) minX = p.$1;
+      if (p.$1 > maxX) maxX = p.$1;
+      if (p.$2 < minY) minY = p.$2;
+      if (p.$2 > maxY) maxY = p.$2;
+    }
+    return Rect.fromLTRB(minX, minY, maxX, maxY);
   }
 
   /// Boháček bbox normalization: 21 landmarks → 42 floats [0, 1].

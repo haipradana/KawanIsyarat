@@ -30,14 +30,10 @@ class LoginScreen extends ConsumerWidget {
               Spacer(flex: 3),
               // Logo
               Container(
-                width: 80,
-                height: 80,
+                width: 88,
+                height: 88,
                 decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    colors: [AppColors.primaryDark, AppColors.primaryContainer],
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                  ),
+                  color: Colors.white,
                   borderRadius: BorderRadius.circular(24),
                   boxShadow: [
                     BoxShadow(
@@ -47,10 +43,10 @@ class LoginScreen extends ConsumerWidget {
                     ),
                   ],
                 ),
-                child: Icon(
-                  Icons.sign_language_rounded,
-                  color: Colors.white,
-                  size: 40,
+                clipBehavior: Clip.antiAlias,
+                child: Image.asset(
+                  'assets/images/logo_kawanisyarat.png',
+                  fit: BoxFit.cover,
                 ),
               ).animate().fadeIn(duration: 600.ms).scale(
                     begin: Offset(0.8, 0.8),

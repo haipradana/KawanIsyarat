@@ -10,6 +10,7 @@ import '../../../shared/widgets/skeleton_overlay_painter.dart';
 import '../../../core/providers/communication_provider.dart';
 import '../widgets/gloss_chip_row.dart';
 import '../widgets/ai_sentence_card.dart';
+import '../../../core/services/tts_service.dart';
 import 'package:go_router/go_router.dart';
 
 class CommDeafToHearingScreen extends ConsumerStatefulWidget {
@@ -25,6 +26,10 @@ class _CommDeafToHearingScreenState
   CameraController? _cameraController;
   bool _isCameraReady = false;
   int _sensorOrientation = 90;
+  CameraLensDirection _lensDirection = CameraLensDirection.front;
+  bool _switchingCamera = false;
+  // Dev flag — set true untuk munculkan panel input fitur (debug skeleton model).
+  static const bool _showModelInputPanel = false;
 
   @override
   void initState() {
@@ -68,11 +73,18 @@ class _CommDeafToHearingScreenState
       final cameras = await availableCameras();
       if (cameras.isEmpty) return;
 
-      // Prefer front camera for sign language
+      // Pilih kamera sesuai _lensDirection. Kalau tidak ada, fallback ke kamera
+      // dengan arah berlawanan, baru fallback ke yang pertama tersedia.
       final camera = cameras.firstWhere(
-        (c) => c.lensDirection == CameraLensDirection.front,
-        orElse: () => cameras.first,
+        (c) => c.lensDirection == _lensDirection,
+        orElse: () => cameras.firstWhere(
+          (c) =>
+              c.lensDirection == CameraLensDirection.front ||
+              c.lensDirection == CameraLensDirection.back,
+          orElse: () => cameras.first,
+        ),
       );
+      _lensDirection = camera.lensDirection;
 
       _sensorOrientation = camera.sensorOrientation;
 
@@ -89,6 +101,30 @@ class _CommDeafToHearingScreenState
       }
     } catch (e) {
       debugPrint('[Camera] Init error: $e');
+    }
+  }
+
+  Future<void> _switchCamera() async {
+    if (_switchingCamera) return;
+    setState(() => _switchingCamera = true);
+    try {
+      // Stop stream dulu, dispose controller lama
+      _stopImageStream();
+      await _cameraController?.dispose();
+      _cameraController = null;
+      if (mounted) setState(() => _isCameraReady = false);
+
+      // Flip lens direction
+      _lensDirection = _lensDirection == CameraLensDirection.front
+          ? CameraLensDirection.back
+          : CameraLensDirection.front;
+
+      await _initCamera();
+
+      // Kalau sebelumnya lagi capture / record, biarkan user tekan lagi — aman,
+      // karena state notifier detach saat recording dihentikan di tombol switch.
+    } finally {
+      if (mounted) setState(() => _switchingCamera = false);
     }
   }
 
@@ -147,7 +183,8 @@ class _CommDeafToHearingScreenState
             _buildCameraView(state)
                 .animate()
                 .fadeIn(duration: 400.ms),
-            if (state.isCapturing &&
+            if (_showModelInputPanel &&
+                state.isCapturing &&
                 state.detectionMode == DetectionMode.sign &&
                 state.modelInputFeatures.length >= 100)
               Padding(
@@ -358,6 +395,42 @@ class _CommDeafToHearingScreenState
                   top: 12,
                   right: 12,
                   child: _buildLetterOverlay(state.currentAlphabetLetter!),
+                ),
+              // Camera switch button (front ↔ back)
+              if (!(state.isCapturing &&
+                      state.detectionMode != DetectionMode.sign &&
+                      state.currentAlphabetLetter != null) &&
+                  !state.isRecordingSign)
+                Positioned(
+                  top: 12,
+                  right: 12,
+                  child: Material(
+                    color: Colors.black.withOpacity(0.45),
+                    shape: const CircleBorder(),
+                    child: InkWell(
+                      customBorder: const CircleBorder(),
+                      onTap: _switchingCamera ? null : _switchCamera,
+                      child: Padding(
+                        padding: const EdgeInsets.all(8),
+                        child: _switchingCamera
+                            ? const SizedBox(
+                                width: 18,
+                                height: 18,
+                                child: CircularProgressIndicator(
+                                  color: Colors.white,
+                                  strokeWidth: 2,
+                                ),
+                              )
+                            : Icon(
+                                _lensDirection == CameraLensDirection.front
+                                    ? Icons.cameraswitch_rounded
+                                    : Icons.flip_camera_android_rounded,
+                                color: Colors.white,
+                                size: 18,
+                              ),
+                      ),
+                    ),
+                  ),
                 ),
               // Processing indicator
               if (state.isProcessing)
@@ -1114,9 +1187,42 @@ class _ControlButton extends StatelessWidget {
 
 /// Contextual Empathy — tips empatik dari Gemma 4 untuk orang dengar.
 /// Format bullet points, muncul di bawah kalimat terjemahan pada alur Deaf→Hearing.
-class _AiSuggestionCard extends StatelessWidget {
+class _AiSuggestionCard extends StatefulWidget {
   final List<String> tips;
   const _AiSuggestionCard({required this.tips});
+
+  @override
+  State<_AiSuggestionCard> createState() => _AiSuggestionCardState();
+}
+
+class _AiSuggestionCardState extends State<_AiSuggestionCard> {
+  final TtsService _tts = TtsService();
+  bool _speaking = false;
+
+  Future<void> _speakAll() async {
+    if (_speaking) {
+      await _tts.stop();
+      if (mounted) setState(() => _speaking = false);
+      return;
+    }
+    final combined = widget.tips
+        .map((t) => t.trim().endsWith('.') ? t.trim() : '${t.trim()}.')
+        .join(' ');
+    setState(() => _speaking = true);
+    await _tts.init();
+    await _tts.stop();
+    await _tts.speak(combined);
+    // Heuristic: reset flag setelah estimasi durasi selesai
+    final estMs = (combined.length * 55).clamp(2000, 30000);
+    await Future.delayed(Duration(milliseconds: estMs));
+    if (mounted) setState(() => _speaking = false);
+  }
+
+  @override
+  void dispose() {
+    _tts.stop();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -1169,22 +1275,65 @@ class _AiSuggestionCard extends StatelessWidget {
                 ),
               ),
               SizedBox(width: 8),
-              Text(
-                'Untuk kamu yang mendengar',
-                style: GoogleFonts.beVietnamPro(
-                  fontSize: 11,
-                  color: AppColors.textPrimary.withOpacity(0.5),
+              Expanded(
+                child: Text(
+                  'Untuk kamu yang mendengar',
+                  style: GoogleFonts.beVietnamPro(
+                    fontSize: 11,
+                    color: AppColors.textPrimary.withOpacity(0.5),
+                  ),
+                ),
+              ),
+              Material(
+                color: Colors.transparent,
+                child: InkWell(
+                  onTap: _speakAll,
+                  borderRadius: BorderRadius.circular(20),
+                  child: Container(
+                    padding: EdgeInsets.symmetric(
+                        horizontal: 10, vertical: 5),
+                    decoration: BoxDecoration(
+                      color: _speaking
+                          ? Color(0xFF8B5CF6).withOpacity(0.25)
+                          : Color(0xFF8B5CF6).withOpacity(0.12),
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(
+                        color: Color(0xFF8B5CF6).withOpacity(0.35),
+                      ),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          _speaking
+                              ? Icons.stop_rounded
+                              : Icons.volume_up_rounded,
+                          size: 14,
+                          color: Color(0xFF6B48FF),
+                        ),
+                        SizedBox(width: 4),
+                        Text(
+                          _speaking ? 'Berhenti' : 'Dengarkan',
+                          style: GoogleFonts.plusJakartaSans(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w700,
+                            color: Color(0xFF6B48FF),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
                 ),
               ),
             ],
           ),
           SizedBox(height: AppSpacing.md),
-          ...tips.asMap().entries.map((entry) {
+          ...widget.tips.asMap().entries.map((entry) {
             final i = entry.key;
             final text = entry.value;
             return Padding(
               padding: EdgeInsets.only(
-                  bottom: i == tips.length - 1 ? 0 : AppSpacing.sm),
+                  bottom: i == widget.tips.length - 1 ? 0 : AppSpacing.sm),
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [

@@ -115,6 +115,17 @@ class HomeDashboardScreen extends ConsumerWidget {
                   begin: 0.05, end: 0, duration: 500.ms, delay: 350.ms,
                   curve: Curves.easeOut,
                 ),
+            SizedBox(height: AppSpacing.lg),
+            // Emergency Quick-Sign — SOS shortcut
+            _buildSosCard(context)
+                .animate()
+                .fadeIn(duration: 500.ms, delay: 450.ms)
+                .slideY(
+                    begin: 0.05,
+                    end: 0,
+                    duration: 500.ms,
+                    delay: 450.ms,
+                    curve: Curves.easeOut),
             SizedBox(height: AppSpacing.xxl),
             // Video of the Day
             WordOfDayCard()
@@ -127,6 +138,72 @@ class HomeDashboardScreen extends ConsumerWidget {
       bottomNavigationBar: BottomNavBar(
         currentIndex: 0,
         onTap: (index) => _handleNavTap(context, index),
+      ),
+    );
+  }
+
+  Widget _buildSosCard(BuildContext context) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: () => context.push('/sos'),
+        borderRadius: BorderRadius.circular(AppRadius.xl),
+        child: Container(
+          width: double.infinity,
+          padding: EdgeInsets.all(AppSpacing.lg),
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [
+                Color(0xFFBA1A1A).withOpacity(0.10),
+                Color(0xFFF57C00).withOpacity(0.06),
+              ],
+            ),
+            borderRadius: BorderRadius.circular(AppRadius.xl),
+            border: Border.all(color: Color(0xFFBA1A1A).withOpacity(0.28)),
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 44,
+                height: 44,
+                decoration: BoxDecoration(
+                  color: Color(0xFFBA1A1A).withOpacity(0.15),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(Icons.campaign_rounded,
+                    color: Color(0xFFBA1A1A), size: 22),
+              ),
+              SizedBox(width: AppSpacing.md),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Darurat / SOS',
+                      style: GoogleFonts.plusJakartaSans(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w800,
+                        color: Color(0xFFBA1A1A),
+                      ),
+                    ),
+                    SizedBox(height: 2),
+                    Text(
+                      '1 tap — umumkan kebutuhan ke orang sekitar',
+                      style: GoogleFonts.beVietnamPro(
+                        fontSize: 12,
+                        color: AppColors.textSecondary,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Icon(Icons.arrow_forward_ios_rounded,
+                  color: Color(0xFFBA1A1A), size: 16),
+            ],
+          ),
+        ),
       ),
     );
   }
