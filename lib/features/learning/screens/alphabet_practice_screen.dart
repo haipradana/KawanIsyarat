@@ -51,7 +51,7 @@ class _AbcDetection {
 enum _Phase { preparing, ready, holding, capturing, coaching, reviewed }
 
 class _AlphabetPracticeScreenState extends ConsumerState<AlphabetPracticeScreen>
-    with SingleTickerProviderStateMixin {
+    with SingleTickerProviderStateMixin, WidgetsBindingObserver {
   CameraController? _cameraController;
   final SibiAlphabetService _sibi = SibiAlphabetService();
   final BisindoAlphabetService _bisindo = BisindoAlphabetService();
@@ -90,8 +90,34 @@ class _AlphabetPracticeScreenState extends ConsumerState<AlphabetPracticeScreen>
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _holdController = AnimationController(vsync: this, duration: _holdDuration);
     _init();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.paused) {
+      // App ke background — hentikan kamera & stream
+      _holdCheckTimer?.cancel();
+      _holdController.stop();
+      if (_cameraController != null &&
+          _cameraController!.value.isInitialized &&
+          _cameraController!.value.isStreamingImages) {
+        _cameraController!.stopImageStream().catchError((_) {});
+      }
+    } else if (state == AppLifecycleState.resumed &&
+        _isInitialized &&
+        _phase != _Phase.coaching &&
+        _phase != _Phase.reviewed) {
+      // Kembali ke foreground — resume stream jika camera masih valid
+      if (_cameraController != null &&
+          _cameraController!.value.isInitialized &&
+          !_cameraController!.value.isStreamingImages) {
+        _cameraController!.startImageStream(_onCameraFrame).catchError((_) {});
+      }
+    }
+    // inactive (notif shade, dll) → biarkan kamera tetap jalan
   }
 
   Future<void> _init() async {
@@ -436,6 +462,7 @@ class _AlphabetPracticeScreenState extends ConsumerState<AlphabetPracticeScreen>
   @override
   void dispose() {
     _disposed = true;
+    WidgetsBinding.instance.removeObserver(this);
     _holdCheckTimer?.cancel();
     _holdController.dispose();
     _cameraController?.stopImageStream().catchError((_) {});

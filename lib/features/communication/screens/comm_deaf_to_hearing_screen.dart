@@ -51,13 +51,16 @@ class _CommDeafToHearingScreenState
     if (_cameraController == null || !_cameraController!.value.isInitialized) {
       return;
     }
-    if (state == AppLifecycleState.inactive) {
+    if (state == AppLifecycleState.paused) {
+      // App benar-benar ke background — matikan kamera
       _stopImageStream();
       _cameraController?.dispose();
       _cameraController = null;
     } else if (state == AppLifecycleState.resumed) {
+      // App kembali ke foreground — nyalakan lagi
       _initCamera();
     }
+    // AppLifecycleState.inactive (notif shade, volume, dll) → biarkan, jangan matikan kamera
   }
 
   Future<void> _initCamera() async {
