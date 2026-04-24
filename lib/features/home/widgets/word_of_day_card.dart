@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:go_router/go_router.dart';
 import '../../../app/constants.dart';
 
 class WordOfDayCard extends StatelessWidget {
@@ -20,9 +21,7 @@ class WordOfDayCard extends StatelessWidget {
         ),
         SizedBox(height: AppSpacing.md),
         GestureDetector(
-          onTap: () {
-            // TODO: Navigate to video player
-          },
+          onTap: () => context.push('/learn/kata'),
           child: Container(
             width: double.infinity,
             decoration: BoxDecoration(

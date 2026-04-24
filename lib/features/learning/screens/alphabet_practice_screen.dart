@@ -942,8 +942,8 @@ class _AlphabetPracticeScreenState extends ConsumerState<AlphabetPracticeScreen>
               Expanded(
                 child: OutlinedButton.icon(
                   onPressed: () => context.pop(),
-                  icon: const Icon(Icons.check_rounded, size: 18),
-                  label: const Text('Selesai'),
+                  icon: const Icon(Icons.swap_horiz_rounded, size: 18),
+                  label: const Text('Ganti Huruf'),
                   style: OutlinedButton.styleFrom(
                     foregroundColor: Colors.white,
                     side: const BorderSide(color: Colors.white30),

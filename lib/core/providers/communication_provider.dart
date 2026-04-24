@@ -15,6 +15,7 @@ import '../services/sibi_alphabet_service.dart';
 import '../services/bisindo_alphabet_service.dart';
 import '../services/persistence_service.dart';
 import '../../shared/models/conversation_entry.dart';
+import '../../shared/models/user_persona.dart';
 
 /// Detection modes for sign-to-text.
 ///   sign          — BISINDO gesture recognition (LSTM, 30-frame recording)
@@ -487,11 +488,12 @@ class HearingToDeafState {
 
 final hearingToDeafProvider =
     StateNotifierProvider<HearingToDeafNotifier, HearingToDeafState>((ref) {
-  return HearingToDeafNotifier();
+  return HearingToDeafNotifier(ref);
 });
 
 class HearingToDeafNotifier extends StateNotifier<HearingToDeafState> {
-  HearingToDeafNotifier() : super(const HearingToDeafState());
+  HearingToDeafNotifier(this._ref) : super(const HearingToDeafState());
+  final Ref _ref;
 
   final _sttService = SttService();
   final _gemmaService = GemmaService();
@@ -697,6 +699,20 @@ class HearingToDeafNotifier extends StateNotifier<HearingToDeafState> {
           smartSummary: summary,
           isProcessing: false,
         );
+      }
+
+      // Simpan ke history setelah pipeline selesai
+      if (transcription.isNotEmpty) {
+        final entry = ConversationEntry(
+          id: DateTime.now().millisecondsSinceEpoch.toString(),
+          sourcePersona: UserPersona.mendengar,
+          originalText: transcription,
+          translatedText: summary.isNotEmpty ? summary : transcription,
+          timestamp: DateTime.now(),
+          type: ConversationType.speechToSign,
+        );
+        _ref.read(conversationHistoryProvider.notifier).addEntry(entry);
+        debugPrint('[STT] Saved to history: ${entry.id}');
       }
     } catch (e) {
       debugPrint('[STT] Pipeline error: $e');

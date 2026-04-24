@@ -41,6 +41,17 @@ dev_dependencies:
   flutter_lints: ^4.0.0
   hive_generator: ^2.0.1
   build_runner: ^2.4.9
+  flutter_launcher_icons: ^0.14.1
+
+flutter_launcher_icons:
+  android: true
+  ios: false
+  image_path: "assets/images/logo_kawanisyarat.png"
+  adaptive_icon_background: "#F9F9F7"
+  adaptive_icon_foreground: "assets/images/logo_kawanisyarat.png"
+  min_sdk_android: 21
+  web:
+    generate: false
 
 flutter:
   uses-material-design: true

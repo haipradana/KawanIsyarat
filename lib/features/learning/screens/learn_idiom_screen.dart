@@ -4,78 +4,139 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:go_router/go_router.dart';
 import '../../../app/constants.dart';
+import '../../../core/services/gemma_service.dart';
+import '../../../core/providers/ai_providers.dart';
 
-// Provider
-final idiomProvider = StateNotifierProvider<IdiomNotifier, IdiomState>((ref) {
-  return IdiomNotifier();
-});
+// ─── State ───────────────────────────────────────────────────────────────────
 
 class IdiomState {
-  final String query;
   final String? selectedIdiom;
   final String? meaning;
   final String? explanation;
   final bool isProcessing;
+  final bool isCustom; // true = hasil dari Gemma free-text
 
-  IdiomState({
-    this.query = '',
+  const IdiomState({
     this.selectedIdiom,
     this.meaning,
     this.explanation,
     this.isProcessing = false,
+    this.isCustom = false,
   });
 
   IdiomState copyWith({
-    String? query,
     String? selectedIdiom,
     String? meaning,
     String? explanation,
     bool? isProcessing,
+    bool? isCustom,
   }) {
     return IdiomState(
-      query: query ?? this.query,
       selectedIdiom: selectedIdiom ?? this.selectedIdiom,
-      meaning: meaning ?? this.meaning,
-      explanation: explanation ?? this.explanation,
+      meaning: meaning ?? meaning,
+      explanation: explanation ?? explanation,
       isProcessing: isProcessing ?? this.isProcessing,
+      isCustom: isCustom ?? this.isCustom,
     );
   }
 }
 
-class IdiomNotifier extends StateNotifier<IdiomState> {
-  IdiomNotifier() : super(IdiomState());
+// ─── Notifier ────────────────────────────────────────────────────────────────
 
-  void selectIdiom(Map<String, String> idiomData) {
+final idiomProvider =
+    StateNotifierProvider<IdiomNotifier, IdiomState>((ref) {
+  return IdiomNotifier(ref);
+});
+
+class IdiomNotifier extends StateNotifier<IdiomState> {
+  IdiomNotifier(this._ref) : super(const IdiomState());
+
+  final Ref _ref;
+  final GemmaService _gemma = GemmaService();
+
+  /// Pilih idiom dari daftar (data langsung dari constants — instant, tidak butuh AI).
+  void selectPreset(Map<String, String> idiomData) {
     state = IdiomState(
-      isProcessing: true,
       selectedIdiom: idiomData['idiom'],
+      meaning: idiomData['meaning'],
+      explanation: idiomData['explanation'],
+      isCustom: false,
     );
-    // Simulate AI processing
-    Future.delayed(Duration(milliseconds: 800), () {
-      if (mounted) {
-        state = state.copyWith(
-          isProcessing: false,
-          meaning: idiomData['meaning'],
-          explanation: idiomData['explanation'],
-        );
-      }
-    });
   }
 
-  void searchIdiom(String query) {
-    state = state.copyWith(query: query);
+  /// Cari idiom custom via Gemma (untuk kata yang tidak ada di daftar preset).
+  Future<void> searchCustom(String query) async {
+    if (query.trim().isEmpty) return;
+
+    state = IdiomState(
+      selectedIdiom: query.trim(),
+      isProcessing: true,
+      isCustom: true,
+    );
+
+    final gemmaReady =
+        _ref.read(modelsDownloadedProvider).valueOrNull ?? false;
+    if (!gemmaReady || !_gemma.isLoaded) {
+      state = IdiomState(
+        selectedIdiom: query.trim(),
+        meaning: 'Model AI belum siap.',
+        explanation:
+            'Buka Pengaturan → Model AI Lokal untuk memuat Gemma terlebih dahulu.',
+        isCustom: true,
+      );
+      return;
+    }
+
+    try {
+      final result = await _gemma.explainIdiom(query.trim());
+      state = IdiomState(
+        selectedIdiom: query.trim(),
+        meaning: result.arti.isNotEmpty ? result.arti : '–',
+        explanation: result.contoh.isNotEmpty ? result.contoh : null,
+        isCustom: true,
+      );
+    } catch (e) {
+      state = IdiomState(
+        selectedIdiom: query.trim(),
+        meaning: 'Gagal menganalisis idiom.',
+        explanation: e.toString(),
+        isCustom: true,
+      );
+    }
   }
 
   void clear() {
-    state = IdiomState();
+    state = const IdiomState();
   }
 }
 
-class LearnIdiomScreen extends ConsumerWidget {
+// ─── Screen ──────────────────────────────────────────────────────────────────
+
+class LearnIdiomScreen extends ConsumerStatefulWidget {
   const LearnIdiomScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<LearnIdiomScreen> createState() => _LearnIdiomScreenState();
+}
+
+class _LearnIdiomScreenState extends ConsumerState<LearnIdiomScreen> {
+  final TextEditingController _ctrl = TextEditingController();
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  void _submit() {
+    final q = _ctrl.text.trim();
+    if (q.isEmpty) return;
+    FocusScope.of(context).unfocus();
+    ref.read(idiomProvider.notifier).searchCustom(q);
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final state = ref.watch(idiomProvider);
 
     return Scaffold(
@@ -114,40 +175,116 @@ class LearnIdiomScreen extends ConsumerWidget {
             ).animate().fadeIn(duration: 400.ms),
             SizedBox(height: 6),
             Text(
-              'Pilih idiom di bawah atau ketik kalimat yang ingin kamu pahami',
+              'Pilih idiom di bawah atau ketik ungkapan yang ingin dipahami',
               style: GoogleFonts.beVietnamPro(
                 fontSize: 14,
                 color: AppColors.textSecondary,
                 height: 1.4,
               ),
             ).animate().fadeIn(duration: 400.ms, delay: 100.ms),
+
             SizedBox(height: AppSpacing.xxl),
-            // Idiom chips
+
+            // ── Free-text search (Gemma-powered) ──────────────────────────
+            Container(
+              decoration: BoxDecoration(
+                color: AppColors.surfaceContainerLow,
+                borderRadius: BorderRadius.circular(AppRadius.xl),
+                border: Border.all(
+                    color: AppColors.outlineVariant.withOpacity(0.35)),
+              ),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: _ctrl,
+                      textInputAction: TextInputAction.search,
+                      onSubmitted: (_) => _submit(),
+                      style: GoogleFonts.plusJakartaSans(
+                        fontSize: 14,
+                        color: AppColors.textPrimary,
+                      ),
+                      decoration: InputDecoration(
+                        hintText: 'Ketik idiom atau ungkapan…',
+                        hintStyle: GoogleFonts.beVietnamPro(
+                          fontSize: 14,
+                          color: AppColors.textSecondary,
+                        ),
+                        border: InputBorder.none,
+                        contentPadding: EdgeInsets.symmetric(
+                            horizontal: AppSpacing.lg, vertical: 14),
+                        prefixIcon: Icon(Icons.search_rounded,
+                            color: AppColors.textSecondary, size: 20),
+                      ),
+                    ),
+                  ),
+                  Padding(
+                    padding: EdgeInsets.only(right: 8),
+                    child: TextButton(
+                      onPressed: _submit,
+                      style: TextButton.styleFrom(
+                        backgroundColor: AppColors.primary,
+                        foregroundColor: Colors.white,
+                        padding: EdgeInsets.symmetric(
+                            horizontal: 16, vertical: 10),
+                        shape: RoundedRectangleBorder(
+                            borderRadius:
+                                BorderRadius.circular(AppRadius.lg)),
+                        minimumSize: Size.zero,
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      ),
+                      child: Text(
+                        'Cari',
+                        style: GoogleFonts.plusJakartaSans(
+                            fontWeight: FontWeight.w700, fontSize: 13),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ).animate().fadeIn(duration: 400.ms, delay: 150.ms),
+
+            SizedBox(height: AppSpacing.xl),
+
+            // ── Preset chips ───────────────────────────────────────────────
+            Text(
+              'CONTOH IDIOM',
+              style: GoogleFonts.plusJakartaSans(
+                fontSize: 11,
+                fontWeight: FontWeight.w700,
+                color: AppColors.textSecondary,
+                letterSpacing: 1.3,
+              ),
+            ),
+            SizedBox(height: AppSpacing.sm),
             Wrap(
               spacing: 8,
               runSpacing: 8,
-              children: BisindoData.idiomList.asMap().entries.map((entry) {
-                final idiom = entry.value;
-                final isSelected = state.selectedIdiom == idiom['idiom'];
+              children: BisindoData.idiomList.map((idiom) {
+                final isSelected =
+                    state.selectedIdiom == idiom['idiom'] && !state.isCustom;
                 return _IdiomChip(
                   label: idiom['idiom']!,
                   isSelected: isSelected,
-                  onTap: () =>
-                      ref.read(idiomProvider.notifier).selectIdiom(idiom),
+                  onTap: () {
+                    _ctrl.clear();
+                    ref.read(idiomProvider.notifier).selectPreset(idiom);
+                  },
                 );
               }).toList(),
             ).animate().fadeIn(duration: 500.ms, delay: 200.ms),
+
             SizedBox(height: AppSpacing.xxl),
-            // Result card
-            if (state.isProcessing)
-              _buildProcessingCard()
-                  .animate()
-                  .fadeIn(duration: 300.ms),
+
+            // ── Result ─────────────────────────────────────────────────────
+            if (state.isProcessing) _buildProcessingCard(),
             if (!state.isProcessing && state.explanation != null)
               _buildResultCard(state)
                   .animate()
                   .fadeIn(duration: 500.ms)
                   .slideY(begin: 0.05, end: 0, duration: 500.ms),
+
+            SizedBox(height: AppSpacing.xxxl),
           ],
         ),
       ),
@@ -175,15 +312,13 @@ class LearnIdiomScreen extends ConsumerWidget {
           ),
           SizedBox(width: 12),
           Text(
-            'Menganalisis idiom...',
+            'Gemma menganalisis idiom…',
             style: GoogleFonts.beVietnamPro(
-              fontSize: 14,
-              color: AppColors.textSecondary,
-            ),
+                fontSize: 14, color: AppColors.textSecondary),
           ),
         ],
       ),
-    );
+    ).animate().fadeIn(duration: 300.ms);
   }
 
   Widget _buildResultCard(IdiomState state) {
@@ -193,25 +328,51 @@ class LearnIdiomScreen extends ConsumerWidget {
       decoration: BoxDecoration(
         color: AppColors.surfaceContainerLow,
         borderRadius: BorderRadius.circular(AppRadius.xxl),
-        border: Border.all(
-          color: AppColors.primary.withOpacity(0.12),
-          width: 1,
-        ),
+        border: Border.all(color: AppColors.primary.withOpacity(0.12)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Idiom title
-          Text(
-            '"${state.selectedIdiom}"',
-            style: GoogleFonts.plusJakartaSans(
-              fontSize: 20,
-              fontWeight: FontWeight.w700,
-              color: AppColors.textPrimary,
-            ),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: Text(
+                  '"${state.selectedIdiom}"',
+                  style: GoogleFonts.plusJakartaSans(
+                    fontSize: 20,
+                    fontWeight: FontWeight.w700,
+                    color: AppColors.textPrimary,
+                  ),
+                ),
+              ),
+              if (state.isCustom)
+                Container(
+                  padding:
+                      EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                  decoration: BoxDecoration(
+                    color: AppColors.primary.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(AppRadius.full),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.auto_awesome_rounded,
+                          size: 11, color: AppColors.primary),
+                      SizedBox(width: 3),
+                      Text(
+                        'Gemma 4',
+                        style: GoogleFonts.jetBrainsMono(
+                            fontSize: 10,
+                            color: AppColors.primary,
+                            fontWeight: FontWeight.w700),
+                      ),
+                    ],
+                  ),
+                ),
+            ],
           ),
           SizedBox(height: AppSpacing.md),
-          // Meaning badge
           Container(
             padding: EdgeInsets.symmetric(horizontal: 12, vertical: 6),
             decoration: BoxDecoration(
@@ -228,15 +389,10 @@ class LearnIdiomScreen extends ConsumerWidget {
             ),
           ),
           SizedBox(height: AppSpacing.lg),
-          // Divider
-          Container(
-            height: 1,
-            color: AppColors.outlineVariant.withOpacity(0.3),
-          ),
+          Container(height: 1, color: AppColors.outlineVariant.withOpacity(0.3)),
           SizedBox(height: AppSpacing.lg),
-          // Explanation
           Text(
-            'PENJELASAN',
+            state.isCustom ? 'CONTOH KALIMAT' : 'PENJELASAN',
             style: GoogleFonts.plusJakartaSans(
               fontSize: 11,
               fontWeight: FontWeight.w700,
@@ -259,6 +415,8 @@ class LearnIdiomScreen extends ConsumerWidget {
   }
 }
 
+// ─── Chip ─────────────────────────────────────────────────────────────────────
+
 class _IdiomChip extends StatelessWidget {
   final String label;
   final bool isSelected;
@@ -278,11 +436,13 @@ class _IdiomChip extends StatelessWidget {
         duration: Duration(milliseconds: 200),
         padding: EdgeInsets.symmetric(horizontal: 14, vertical: 8),
         decoration: BoxDecoration(
-          color: isSelected ? AppColors.primary : AppColors.surfaceContainerLow,
+          color:
+              isSelected ? AppColors.primary : AppColors.surfaceContainerLow,
           borderRadius: BorderRadius.circular(AppRadius.full),
           border: Border.all(
-            color: isSelected ? AppColors.primary : AppColors.outlineVariant.withOpacity(0.4),
-            width: 1,
+            color: isSelected
+                ? AppColors.primary
+                : AppColors.outlineVariant.withOpacity(0.4),
           ),
         ),
         child: Text(

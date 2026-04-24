@@ -934,6 +934,61 @@ Jawab HANYA dengan teks transkripsi, tanpa penjelasan atau komentar.
     );
   }
 
+  // ─── Artikulasi Feedback ──────────────────────────────────────────────────
+
+  static const _artikulasiFeedbackPrompt = '''
+Kamu membantu orang belajar mengucapkan kata Bahasa Indonesia dengan jelas.
+Berikan feedback singkat (1-2 kalimat) untuk membantu mereka memperbaiki pengucapan.
+Bahasa Indonesia, santai, tidak menghakimi.
+''';
+
+  /// Berikan feedback pengucapan: target kata vs yang terdeteksi STT.
+  /// Kalau [detected] == [target] → pujian singkat.
+  /// Kalau berbeda → tips perbaikan spesifik.
+  Future<String> feedbackArtikulasi(String target, String detected) async {
+    final isCorrect = detected.trim().toLowerCase() == target.trim().toLowerCase();
+    if (isCorrect) {
+      return 'Pengucapanmu sudah tepat dan jelas! Lanjutkan ke kata berikutnya.';
+    }
+    final prompt = 'Target: "$target". Yang terdengar: "$detected". '
+        'Berikan 1-2 kalimat tips memperbaiki pengucapan kata "$target".';
+    final result = await _inferShort(_artikulasiFeedbackPrompt, prompt);
+    if (result == null || result.trim().isEmpty) {
+      return 'Kata yang terdengar adalah "$detected". Coba ucapkan lebih pelan, '
+          'perhatikan setiap suku kata pada "$target".';
+    }
+    return result.trim();
+  }
+
+  // ─── Idiom Explanation ────────────────────────────────────────────────────
+
+  static const _idiomPrompt = '''
+Kamu membantu teman Tuli memahami idiom dan ungkapan Bahasa Indonesia.
+Jawab dengan format tepat:
+Arti: [1 kalimat makna sebenarnya, bukan makna harfiah]
+Contoh: [1 kalimat contoh penggunaan dalam percakapan]
+Jangan tambah baris lain.
+''';
+
+  /// Jelaskan idiom/ungkapan untuk teman Tuli.
+  Future<({String arti, String contoh})> explainIdiom(String idiom) async {
+    final result = await _inferShort(_idiomPrompt,
+        'Jelaskan idiom: "$idiom"');
+    final raw = result ?? '';
+    String arti = '';
+    String contoh = '';
+    for (final line in raw.split('\n').where((l) => l.isNotEmpty)) {
+      final lower = line.toLowerCase();
+      if (lower.startsWith('arti:')) {
+        arti = line.substring(line.indexOf(':') + 1).trim();
+      } else if (lower.startsWith('contoh:')) {
+        contoh = line.substring(line.indexOf(':') + 1).trim();
+      }
+    }
+    if (arti.isEmpty) arti = raw.trim();
+    return (arti: arti, contoh: contoh);
+  }
+
   Future<void> dispose() async {
     await _model?.dispose();
     _model = null;

@@ -24,6 +24,7 @@ class _CommHearingToDeafScreenState
   void dispose() {
     super.dispose();
   }
+  @override
   Widget build(BuildContext context) {
     final state = ref.watch(hearingToDeafProvider);
 
