@@ -1,0 +1,1985 @@
+<!DOCTYPE html>
+<html lang="id">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>KawanIsyarat · Komunikasi yang setara, untuk siapa saja.</title>
+  <meta name="description"
+    content="Aplikasi Android yang membantu orang Tuli pengguna BISINDO dan orang dengar berkomunikasi secara langsung. Berjalan sepenuhnya di perangkat, tanpa internet." />
+  <meta property="og:title" content="KawanIsyarat" />
+  <meta property="og:description" content="Komunikasi yang setara, untuk siapa saja." />
+
+  <link rel="icon" type="image/png" href="logo.png" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link
+    href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&family=Inter:wght@400;450;500;600;700&family=JetBrains+Mono:wght@500&display=swap"
+    rel="stylesheet" />
+
+  <style>
+    *,
+    *::before,
+    *::after {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    :root {
+      --cream: #FAFAF7;
+      --sage: #F1F4EF;
+      --paper: #FFFFFF;
+      --ink: #1A1C1B;
+      --ink-soft: #3A403F;
+      --muted: #5F6B6A;
+      --dim: #97A09E;
+      --border: #E8E5DE;
+      --border-soft: #EFECE4;
+      --teal: #006D6D;
+      --teal-hover: #005858;
+      --teal-soft: #EBF2F1;
+      --clay: #B8876F;
+
+      --serif: 'Fraunces', 'Iowan Old Style', Georgia, serif;
+      --sans: 'Inter', -apple-system, sans-serif;
+      --mono: 'JetBrains Mono', ui-monospace, monospace;
+    }
+
+    html {
+      scroll-behavior: smooth;
+    }
+
+    body {
+      background: var(--cream);
+      color: var(--ink);
+      font-family: var(--sans);
+      font-size: 16px;
+      line-height: 1.6;
+      font-feature-settings: "ss01", "cv11";
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+    }
+
+    a {
+      color: inherit;
+      text-decoration: none;
+    }
+
+    img,
+    svg {
+      display: block;
+      max-width: 100%;
+    }
+
+    /* i18n visibility */
+    [data-lang-en] {
+      display: none;
+    }
+
+    html[lang="en"] [data-lang-id] {
+      display: none;
+    }
+
+    html[lang="en"] [data-lang-en] {
+      display: inline;
+    }
+
+    html[lang="en"] [data-lang-en].block {
+      display: block;
+    }
+
+    /* LAYOUT */
+    .container {
+      max-width: 1120px;
+      margin: 0 auto;
+      padding: 0 28px;
+    }
+
+    .container-narrow {
+      max-width: 720px;
+      margin: 0 auto;
+      padding: 0 28px;
+    }
+
+    section {
+      padding: 120px 0;
+      position: relative;
+    }
+
+    @media (max-width: 720px) {
+      section {
+        padding: 80px 0;
+      }
+    }
+
+    hr.rule {
+      border: none;
+      height: 1px;
+      background: var(--border);
+      max-width: 1120px;
+      margin: 0 auto;
+    }
+
+    /* TYPOGRAPHY */
+    .eyebrow {
+      font-family: var(--mono);
+      font-size: 12px;
+      font-weight: 500;
+      color: var(--muted);
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .eyebrow::before {
+      content: '';
+      display: block;
+      width: 20px;
+      height: 1px;
+      background: var(--teal);
+    }
+
+    h1,
+    h2,
+    h3 {
+      font-family: var(--serif);
+      font-weight: 500;
+      letter-spacing: -0.02em;
+      color: var(--ink);
+      line-height: 1.08;
+    }
+
+    h1 {
+      font-size: clamp(44px, 6vw, 72px);
+    }
+
+    h2 {
+      font-size: clamp(32px, 4.2vw, 48px);
+      line-height: 1.1;
+    }
+
+    h3 {
+      font-size: 22px;
+      line-height: 1.25;
+      font-weight: 500;
+    }
+
+    .lead {
+      font-size: 19px;
+      line-height: 1.6;
+      color: var(--ink-soft);
+      max-width: 560px;
+    }
+
+    .body-text {
+      color: var(--ink-soft);
+      line-height: 1.7;
+    }
+
+    .body-text+.body-text {
+      margin-top: 20px;
+    }
+
+    .em-serif {
+      font-family: var(--serif);
+      font-style: italic;
+      font-weight: 400;
+    }
+
+    /* NAV */
+    nav.site {
+      position: sticky;
+      top: 0;
+      z-index: 50;
+      background: rgba(250, 250, 247, 0.85);
+      backdrop-filter: blur(14px) saturate(1.2);
+      -webkit-backdrop-filter: blur(14px) saturate(1.2);
+      border-bottom: 1px solid var(--border-soft);
+    }
+
+    .nav-inner {
+      max-width: 1120px;
+      margin: 0 auto;
+      padding: 20px 28px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .wordmark {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-family: var(--sans);
+      font-weight: 600;
+      font-size: 16px;
+      letter-spacing: -0.02em;
+      color: var(--ink);
+    }
+
+    .wordmark img {
+      width: 32px;
+      height: 32px;
+      border-radius: 8px;
+    }
+
+    .nav-links {
+      display: flex;
+      align-items: center;
+      gap: 28px;
+    }
+
+    .nav-links a {
+      font-size: 14px;
+      font-weight: 450;
+      color: var(--ink-soft);
+      transition: color 0.2s;
+    }
+
+    .nav-links a:hover {
+      color: var(--ink);
+    }
+
+    .nav-cta {
+      padding: 9px 18px;
+      background: var(--ink) !important;
+      color: var(--cream) !important;
+      border-radius: 50px;
+      font-weight: 500;
+      transition: background 0.2s;
+    }
+
+    .nav-cta:hover {
+      background: var(--teal-hover) !important;
+      color: white !important;
+    }
+
+    /* Language toggle */
+    .lang-toggle {
+      display: inline-flex;
+      align-items: center;
+      border: 1px solid var(--border);
+      border-radius: 50px;
+      padding: 3px;
+      background: var(--paper);
+    }
+
+    .lang-toggle button {
+      border: none;
+      background: transparent;
+      font-family: var(--mono);
+      font-size: 11px;
+      font-weight: 500;
+      color: var(--muted);
+      padding: 5px 10px;
+      border-radius: 50px;
+      cursor: pointer;
+      letter-spacing: 0.04em;
+      transition: background 0.2s, color 0.2s;
+    }
+
+    .lang-toggle button.active {
+      background: var(--ink);
+      color: var(--cream);
+    }
+
+    .lang-toggle button:not(.active):hover {
+      color: var(--ink);
+    }
+
+    @media (max-width: 720px) {
+      .nav-links .hide-mobile {
+        display: none;
+      }
+
+      .nav-links {
+        gap: 14px;
+      }
+    }
+
+    /* HERO */
+    .hero {
+      padding: 100px 0 140px;
+    }
+
+    .hero-grid {
+      display: grid;
+      grid-template-columns: 1.1fr 0.9fr;
+      gap: 80px;
+      align-items: center;
+    }
+
+    @media (max-width: 900px) {
+      .hero-grid {
+        grid-template-columns: 1fr;
+        gap: 56px;
+      }
+    }
+
+    .hero h1 {
+      margin: 24px 0 28px;
+    }
+
+    .hero h1 .accent {
+      font-style: italic;
+      font-weight: 400;
+      color: var(--teal);
+    }
+
+    .hero .lead {
+      margin-bottom: 40px;
+    }
+
+    .hero-cta {
+      display: flex;
+      align-items: center;
+      gap: 28px;
+      flex-wrap: wrap;
+    }
+
+    .btn-primary {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      padding: 14px 26px;
+      background: var(--ink);
+      color: var(--cream);
+      border-radius: 50px;
+      font-weight: 500;
+      font-size: 15px;
+      transition: background 0.2s, transform 0.15s;
+    }
+
+    .btn-primary:hover {
+      background: var(--teal);
+      transform: translateY(-1px);
+    }
+
+    .link-arrow {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--ink-soft);
+      font-weight: 500;
+      font-size: 15px;
+      transition: gap 0.2s, color 0.2s;
+    }
+
+    .link-arrow:hover {
+      gap: 12px;
+      color: var(--teal);
+    }
+
+    /* PHONE MOCKUP */
+    .phone-stage {
+      position: relative;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      padding: 20px;
+    }
+
+    .phone-stage::before {
+      content: '';
+      position: absolute;
+      width: 85%;
+      height: 85%;
+      top: 8%;
+      left: 7.5%;
+      background: var(--teal-soft);
+      border-radius: 40% 60% 55% 45% / 45% 55% 45% 55%;
+      z-index: 0;
+      opacity: 0.8;
+    }
+
+    .phone {
+      position: relative;
+      z-index: 1;
+      width: 270px;
+      height: 540px;
+      background: var(--cream);
+      border: 1.5px solid var(--border);
+      border-radius: 42px;
+      padding: 16px 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      box-shadow:
+        0 1px 3px rgba(0, 0, 0, 0.03),
+        0 12px 32px rgba(26, 28, 27, 0.08),
+        0 40px 64px rgba(26, 28, 27, 0.06);
+    }
+
+    .phone-header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 8px 14px;
+      border-bottom: 1px solid var(--border-soft);
+    }
+
+    .phone-header img {
+      width: 28px;
+      height: 28px;
+      border-radius: 6px;
+    }
+
+    .ph-title {
+      font-family: var(--sans);
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--ink);
+    }
+
+    .ph-sub {
+      font-size: 11px;
+      color: var(--muted);
+    }
+
+    .ph-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: #2A9D5F;
+      display: inline-block;
+      margin-right: 4px;
+      vertical-align: middle;
+    }
+
+    .bubble-label {
+      font-family: var(--mono);
+      font-size: 10px;
+      color: var(--muted);
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      margin-top: 4px;
+    }
+
+    .bubble-label.right {
+      text-align: right;
+    }
+
+    .bubble {
+      padding: 10px 14px;
+      font-size: 12.5px;
+      line-height: 1.45;
+      max-width: 82%;
+    }
+
+    .bubble.sign {
+      background: var(--teal-soft);
+      border-radius: 14px 14px 14px 4px;
+      color: var(--ink);
+      align-self: flex-start;
+      font-family: var(--mono);
+      font-size: 11px;
+      letter-spacing: 0.05em;
+    }
+
+    .bubble.translated {
+      background: var(--ink);
+      color: var(--cream);
+      border-radius: 14px 14px 4px 14px;
+      align-self: flex-end;
+    }
+
+    .bubble.tip {
+      background: transparent;
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      color: var(--ink-soft);
+      align-self: flex-start;
+      font-size: 11.5px;
+    }
+
+    .bubble.tip .label {
+      font-family: var(--mono);
+      font-size: 9px;
+      color: var(--teal);
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      margin-bottom: 4px;
+      display: block;
+    }
+
+    .phone-spacer {
+      flex: 1;
+    }
+
+    .phone-input {
+      background: var(--paper);
+      border: 1px solid var(--border);
+      border-radius: 24px;
+      padding: 10px 12px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .phone-input .placeholder {
+      flex: 1;
+      font-size: 12px;
+      color: var(--dim);
+    }
+
+    .phone-input .mic {
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      background: var(--teal);
+      color: white;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    /* NARRATIVE */
+    .narrative {
+      padding: 100px 0;
+      background: var(--sage);
+      border-top: 1px solid var(--border);
+      border-bottom: 1px solid var(--border);
+    }
+
+    .narrative .inner {
+      max-width: 780px;
+      margin: 0 auto;
+      padding: 0 28px;
+    }
+
+    .narrative p {
+      font-size: 19px;
+      line-height: 1.7;
+      color: var(--ink-soft);
+      margin-bottom: 20px;
+    }
+
+    .pullquote {
+      font-family: var(--serif);
+      font-size: clamp(26px, 3.6vw, 38px);
+      line-height: 1.3;
+      letter-spacing: -0.01em;
+      color: var(--ink);
+      font-weight: 500;
+      padding: 40px 0;
+      margin: 20px 0;
+      border-top: 1px solid var(--border);
+      border-bottom: 1px solid var(--border);
+    }
+
+    .pullquote::before {
+      content: '“';
+      display: block;
+      color: var(--teal);
+      margin-bottom: 16px;
+      font-size: 48px;
+      line-height: 0.4;
+    }
+
+    .stat-row {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 28px;
+      margin: 48px 0 24px;
+      padding: 32px 0;
+      border-top: 1px solid var(--border);
+      border-bottom: 1px solid var(--border);
+    }
+
+    @media (max-width: 620px) {
+      .stat-row {
+        grid-template-columns: 1fr;
+        gap: 22px;
+        padding: 28px 0;
+      }
+    }
+
+    .stat-row .stat-num {
+      font-family: var(--serif);
+      font-size: 34px;
+      font-weight: 500;
+      color: var(--ink);
+      line-height: 1;
+    }
+
+    .stat-row .stat-label {
+      font-size: 13px;
+      color: var(--muted);
+      margin-top: 8px;
+      line-height: 1.5;
+    }
+
+    .stat-row .stat-label strong {
+      color: var(--ink-soft);
+      font-weight: 500;
+    }
+
+    .citation {
+      font-size: 13px;
+      color: var(--muted);
+      font-style: italic;
+      margin-top: 18px;
+    }
+
+    /* TWO-WAY */
+    .two-way-head {
+      display: grid;
+      grid-template-columns: 1fr 1.2fr;
+      gap: 80px;
+      align-items: start;
+      margin-bottom: 64px;
+    }
+
+    @media (max-width: 820px) {
+      .two-way-head {
+        grid-template-columns: 1fr;
+        gap: 24px;
+      }
+    }
+
+    .two-way-head p {
+      color: var(--ink-soft);
+      font-size: 17px;
+      line-height: 1.7;
+    }
+
+    .two-way-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 24px;
+    }
+
+    @media (max-width: 820px) {
+      .two-way-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    .flow-card {
+      background: var(--paper);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 36px;
+      transition: border-color 0.25s;
+    }
+
+    .flow-card:hover {
+      border-color: var(--teal);
+    }
+
+    .flow-icon {
+      width: 48px;
+      height: 48px;
+      border-radius: 12px;
+      background: var(--teal-soft);
+      color: var(--teal);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin-bottom: 20px;
+    }
+
+    .flow-card h3 {
+      margin-bottom: 10px;
+    }
+
+    .flow-card>p {
+      color: var(--ink-soft);
+      font-size: 15px;
+      margin-bottom: 24px;
+      line-height: 1.6;
+    }
+
+    .flow-steps {
+      list-style: none;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+      padding-top: 24px;
+      border-top: 1px solid var(--border-soft);
+    }
+
+    .flow-steps li {
+      display: flex;
+      gap: 16px;
+      font-size: 14px;
+      line-height: 1.5;
+      color: var(--ink-soft);
+    }
+
+    .flow-steps .num {
+      font-family: var(--mono);
+      font-size: 11px;
+      color: var(--teal);
+      font-weight: 500;
+      min-width: 18px;
+      padding-top: 2px;
+    }
+
+    .flow-steps strong {
+      color: var(--ink);
+      font-weight: 600;
+    }
+
+    /* VIDEO */
+    .video-section {
+      background: var(--cream);
+      padding: 100px 0 120px;
+    }
+
+    .video-head {
+      max-width: 680px;
+      margin: 0 auto 56px;
+      text-align: center;
+    }
+
+    .video-head .eyebrow {
+      justify-content: center;
+    }
+
+    .video-sub {
+      color: var(--ink-soft);
+      font-size: 17px;
+      line-height: 1.7;
+      margin-top: 20px;
+    }
+
+    .video-frame {
+      position: relative;
+      max-width: 980px;
+      margin: 0 auto;
+      border-radius: 24px;
+      overflow: hidden;
+      background: var(--ink);
+      border: 1px solid var(--border);
+      aspect-ratio: 16 / 9;
+      box-shadow:
+        0 1px 3px rgba(0, 0, 0, 0.04),
+        0 24px 56px rgba(26, 28, 27, 0.10);
+    }
+
+    .video-frame iframe,
+    .video-frame video {
+      width: 100%;
+      height: 100%;
+      border: 0;
+      display: block;
+    }
+
+    .video-placeholder {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 18px;
+      color: var(--cream);
+      background:
+        radial-gradient(ellipse at center, rgba(0, 109, 109, 0.25) 0%, transparent 70%),
+        var(--ink);
+    }
+
+    .video-placeholder svg {
+      opacity: 0.75;
+    }
+
+    .video-placeholder-label {
+      font-family: var(--mono);
+      font-size: 12px;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: rgba(250, 250, 247, 0.7);
+    }
+
+    /* FEATURES */
+    .features {
+      background: var(--cream);
+    }
+
+    .features-head {
+      text-align: center;
+      max-width: 640px;
+      margin: 0 auto 72px;
+    }
+
+    .features-head p {
+      color: var(--ink-soft);
+      font-size: 17px;
+      margin-top: 20px;
+    }
+
+    .bento {
+      display: grid;
+      gap: 20px;
+      grid-template-columns: repeat(6, 1fr);
+      grid-auto-rows: minmax(240px, auto);
+    }
+
+    .bento-item {
+      background: var(--paper);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 32px;
+      display: flex;
+      flex-direction: column;
+      transition: border-color 0.25s, transform 0.25s;
+    }
+
+    .bento-item:hover {
+      border-color: var(--ink);
+      transform: translateY(-2px);
+    }
+
+    .bento-item .icon {
+      width: 40px;
+      height: 40px;
+      color: var(--teal);
+      margin-bottom: 20px;
+    }
+
+    .bento-item h3 {
+      margin-bottom: 10px;
+      font-size: 20px;
+    }
+
+    .bento-item p {
+      color: var(--muted);
+      font-size: 14px;
+      line-height: 1.6;
+      flex-grow: 1;
+    }
+
+    .bento-a {
+      grid-column: span 3;
+    }
+
+    .bento-b {
+      grid-column: span 3;
+    }
+
+    .bento-c {
+      grid-column: span 2;
+    }
+
+    .bento-d {
+      grid-column: span 2;
+    }
+
+    .bento-e {
+      grid-column: span 2;
+    }
+
+    .bento-f {
+      grid-column: span 3;
+    }
+
+    .bento-g {
+      grid-column: span 3;
+    }
+
+    .bento-item.accent {
+      background: var(--ink);
+      color: var(--cream);
+    }
+
+    .bento-item.accent h3 {
+      color: var(--cream);
+    }
+
+    .bento-item.accent p {
+      color: rgba(250, 250, 247, 0.7);
+    }
+
+    .bento-item.accent .icon {
+      color: var(--cream);
+    }
+
+    @media (max-width: 900px) {
+      .bento {
+        grid-template-columns: repeat(2, 1fr);
+        grid-auto-rows: auto;
+      }
+
+      .bento-item {
+        grid-column: span 1 !important;
+        min-height: 220px;
+      }
+    }
+
+    @media (max-width: 520px) {
+      .bento {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    /* FOR BOTH */
+    .for-both {
+      background: var(--sage);
+      border-top: 1px solid var(--border);
+      border-bottom: 1px solid var(--border);
+    }
+
+    .for-both .inner {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 72px;
+      align-items: center;
+    }
+
+    @media (max-width: 820px) {
+      .for-both .inner {
+        grid-template-columns: 1fr;
+        gap: 48px;
+      }
+    }
+
+    .for-both h2 {
+      margin: 20px 0 24px;
+    }
+
+    .for-both p {
+      color: var(--ink-soft);
+      font-size: 17px;
+      line-height: 1.7;
+      margin-bottom: 20px;
+    }
+
+    .wall-illo {
+      background: var(--paper);
+      border: 1px solid var(--border);
+      border-radius: 24px;
+      padding: 40px;
+      position: relative;
+    }
+
+    .wall-diagram {
+      display: grid;
+      grid-template-columns: 1fr auto 1fr;
+      gap: 20px;
+      align-items: center;
+    }
+
+    .wall-person {
+      text-align: center;
+      padding: 24px 16px;
+      background: var(--cream);
+      border: 1px solid var(--border-soft);
+      border-radius: 16px;
+    }
+
+    .wall-person .label-sm {
+      font-family: var(--mono);
+      font-size: 11px;
+      color: var(--muted);
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      margin-bottom: 10px;
+    }
+
+    .wall-person .name {
+      font-family: var(--serif);
+      font-size: 20px;
+      color: var(--ink);
+    }
+
+    .wall-bridge {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .wall-bridge svg {
+      color: var(--teal);
+    }
+
+    .wall-bridge span {
+      font-family: var(--mono);
+      font-size: 10px;
+      color: var(--teal);
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+    }
+
+    /* TECH */
+    .tech {
+      background: var(--cream);
+    }
+
+    .tech-layout {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 80px;
+    }
+
+    @media (max-width: 820px) {
+      .tech-layout {
+        grid-template-columns: 1fr;
+        gap: 48px;
+      }
+    }
+
+    .tech-layout h2 {
+      margin: 20px 0 24px;
+    }
+
+    .tech-layout>div>p {
+      color: var(--ink-soft);
+      font-size: 17px;
+      line-height: 1.7;
+      margin-bottom: 20px;
+    }
+
+    .spec-list {
+      background: var(--paper);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      overflow: hidden;
+    }
+
+    .spec-row {
+      padding: 20px 28px;
+      display: grid;
+      grid-template-columns: 140px 1fr;
+      gap: 20px;
+      align-items: start;
+      border-bottom: 1px solid var(--border-soft);
+    }
+
+    .spec-row:last-child {
+      border-bottom: none;
+    }
+
+    .spec-row dt {
+      font-family: var(--mono);
+      font-size: 12px;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      padding-top: 2px;
+    }
+
+    .spec-row dd {
+      font-size: 14px;
+      color: var(--ink-soft);
+      line-height: 1.6;
+    }
+
+    .spec-row dd strong {
+      color: var(--ink);
+      font-weight: 600;
+    }
+
+    @media (max-width: 520px) {
+      .spec-row {
+        grid-template-columns: 1fr;
+        gap: 6px;
+        padding: 18px 20px;
+      }
+    }
+
+    /* STORY */
+    .story {
+      background: var(--sage);
+      border-top: 1px solid var(--border);
+    }
+
+    .story .inner {
+      max-width: 780px;
+      margin: 0 auto;
+      padding: 0 28px;
+    }
+
+    .story h2 {
+      margin-bottom: 32px;
+      text-align: center;
+    }
+
+    .story p {
+      font-size: 18px;
+      line-height: 1.75;
+      color: var(--ink-soft);
+      margin-bottom: 22px;
+    }
+
+    .signature {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      margin-top: 48px;
+      padding-top: 32px;
+      border-top: 1px solid var(--border);
+    }
+
+    .sig-mark {
+      width: 48px;
+      height: 48px;
+      background: var(--cream);
+      border: 1px solid var(--border);
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-family: var(--serif);
+      font-style: italic;
+      font-size: 22px;
+      color: var(--teal);
+    }
+
+    .sig-text .name {
+      font-family: var(--serif);
+      font-size: 17px;
+      color: var(--ink);
+      font-weight: 500;
+    }
+
+    .sig-text .role {
+      font-size: 13px;
+      color: var(--muted);
+      margin-top: 2px;
+    }
+
+    /* CLOSING */
+    .closing {
+      padding: 140px 0;
+      text-align: center;
+    }
+
+    .closing h2 {
+      max-width: 680px;
+      margin: 0 auto 28px;
+    }
+
+    .closing p {
+      color: var(--ink-soft);
+      font-size: 17px;
+      max-width: 520px;
+      margin: 0 auto 40px;
+    }
+
+    .closing .hero-cta {
+      justify-content: center;
+    }
+
+    /* FOOTER */
+    footer.site {
+      padding: 48px 0 56px;
+      border-top: 1px solid var(--border);
+      background: var(--cream);
+    }
+
+    .footer-inner {
+      max-width: 1120px;
+      margin: 0 auto;
+      padding: 0 28px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 24px;
+    }
+
+    .footer-mark {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .footer-mark img {
+      width: 28px;
+      height: 28px;
+      border-radius: 6px;
+    }
+
+    .footer-mark span {
+      font-weight: 600;
+      color: var(--ink);
+      font-size: 15px;
+    }
+
+    .footer-meta {
+      font-size: 13px;
+      color: var(--muted);
+    }
+
+    .footer-meta a {
+      text-decoration: underline;
+      text-decoration-color: var(--border);
+      text-underline-offset: 3px;
+    }
+
+    .footer-meta a:hover {
+      text-decoration-color: var(--teal);
+      color: var(--teal);
+    }
+
+    /* ANIMATIONS */
+    .reveal {
+      opacity: 0;
+      transform: translateY(20px);
+      transition: opacity 0.8s cubic-bezier(0.2, 0.6, 0.2, 1),
+        transform 0.8s cubic-bezier(0.2, 0.6, 0.2, 1);
+    }
+
+    .reveal.in {
+      opacity: 1;
+      transform: translateY(0);
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+
+      *,
+      *::before,
+      *::after {
+        animation: none !important;
+        transition: none !important;
+      }
+    }
+  </style>
+</head>
+
+<body>
+
+  <!-- NAV -->
+  <nav class="site">
+    <div class="nav-inner">
+      <a href="#" class="wordmark">
+        <img src="logo.png" alt="" />
+        <span>kawanisyarat</span>
+      </a>
+      <div class="nav-links">
+        <a href="#video" class="hide-mobile" data-lang-id>Demo</a><a href="#video" class="hide-mobile"
+          data-lang-en>Demo</a>
+        <a href="#cara-kerja" class="hide-mobile" data-lang-id>Cara kerja</a><a href="#cara-kerja" class="hide-mobile"
+          data-lang-en>How it works</a>
+        <a href="#fitur" class="hide-mobile" data-lang-id>Fitur</a><a href="#fitur" class="hide-mobile"
+          data-lang-en>Features</a>
+        <a href="#teknologi" class="hide-mobile" data-lang-id>Teknologi</a><a href="#teknologi" class="hide-mobile"
+          data-lang-en>Technology</a>
+        <div class="lang-toggle" role="group" aria-label="Language">
+          <button type="button" data-set-lang="id" class="active">ID</button>
+          <button type="button" data-set-lang="en">EN</button>
+        </div>
+        <a href="#" class="nav-cta" data-lang-id>Unduh</a><a href="#" class="nav-cta" data-lang-en>Download</a>
+      </div>
+    </div>
+  </nav>
+
+  <!-- HERO -->
+  <section class="hero">
+    <div class="container">
+      <div class="hero-grid">
+        <div class="reveal">
+          <span class="eyebrow" data-lang-id>Untuk komunitas Tuli & orang dengar</span><span class="eyebrow"
+            data-lang-en>For the Deaf community and hearing people</span>
+          <h1 data-lang-id>
+            Komunikasi yang<br />
+            <span class="accent">setara,</span> untuk<br />
+            siapa saja.
+          </h1>
+          <h1 data-lang-en class="block">
+            Communication that is<br />
+            <span class="accent">equal,</span> for<br />
+            everyone.
+          </h1>
+          <p class="lead" data-lang-id>
+            KawanIsyarat adalah aplikasi Android yang membantu orang Tuli pengguna BISINDO dan orang dengar berbicara
+            secara langsung. Seluruh prosesnya berjalan di ponsel Anda, tanpa koneksi internet dan tanpa mengirim data
+            ke server mana pun.
+          </p>
+          <p class="lead block" data-lang-en>
+            KawanIsyarat is an Android app that helps BISINDO-signing Deaf people and hearing people talk to each other
+            directly. Everything runs on your phone, with no internet connection and no data ever leaving the device.
+          </p>
+          <div class="hero-cta">
+            <a href="#" class="btn-primary">
+              <span data-lang-id>Unduh untuk Android</span><span data-lang-en>Download for Android</span>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                stroke-linecap="round" stroke-linejoin="round">
+                <path d="M12 5v14M19 12l-7 7-7-7" />
+              </svg>
+            </a>
+            <a href="#cara-kerja" class="link-arrow">
+              <span data-lang-id>Pelajari cara kerjanya</span><span data-lang-en>See how it works</span>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                stroke-linecap="round" stroke-linejoin="round">
+                <path d="M5 12h14M12 5l7 7-7 7" />
+              </svg>
+            </a>
+          </div>
+        </div>
+
+        <div class="phone-stage reveal">
+          <div class="phone">
+            <div class="phone-header">
+              <img src="logo.png" alt="" />
+              <div>
+                <div class="ph-title">KawanIsyarat</div>
+                <div class="ph-sub"><span class="ph-dot"></span><span data-lang-id>Aktif · Offline</span><span
+                    data-lang-en>Active · Offline</span></div>
+              </div>
+            </div>
+
+            <div class="bubble-label"><span data-lang-id>Isyarat terdeteksi</span><span data-lang-en>Signs
+                detected</span></div>
+            <div class="bubble sign">SAYA · LAPAR · MINTA · TOLONG</div>
+
+            <div class="bubble-label right"><span data-lang-id>Terjemahan</span><span data-lang-en>Translation</span>
+            </div>
+            <div class="bubble translated"><span data-lang-id>Saya lapar dan butuh bantuan mencari makanan.</span><span
+                data-lang-en>I'm hungry and I could use help finding food.</span></div>
+
+            <div class="bubble tip">
+              <span class="label"><span data-lang-id>Saran untuk Anda</span><span data-lang-en>A suggestion for
+                  you</span></span>
+              <span data-lang-id>Tanyakan makanan yang ia sukai. Perhatikan juga ekspresi wajahnya agar Anda tahu
+                seberapa lapar ia.</span>
+              <span data-lang-en>Ask what food she enjoys. Watch her facial expression too, so you can sense how hungry
+                she really is.</span>
+            </div>
+
+            <div class="phone-spacer"></div>
+
+            <div class="phone-input">
+              <span class="placeholder"><span data-lang-id>Ketik atau rekam…</span><span data-lang-en>Type or
+                  record…</span></span>
+              <div class="mic">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                  stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M12 2a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z" />
+                  <path d="M19 10v1a7 7 0 0 1-14 0v-1M12 18v4M8 22h8" />
+                </svg>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- NARRATIVE -->
+  <section class="narrative">
+    <div class="inner reveal">
+      <span class="eyebrow" data-lang-id>Cerita di balik KawanIsyarat</span><span class="eyebrow" data-lang-en>The story
+        behind KawanIsyarat</span>
+
+      <p style="margin-top: 24px;" data-lang-id>
+        Di Indonesia, jumlah penyandang disabilitas rungu jauh lebih besar daripada yang sering dibicarakan. Berdasarkan
+        data Kementerian Koordinator Bidang Pembangunan Manusia dan Kebudayaan (Kemenko PMK) tahun 2023, ada sekitar
+        <strong>22,97 juta jiwa</strong> yang tergolong Tuli atau mengalami gangguan pendengaran. Itu setara dengan
+        kurang lebih 8,5% penduduk Indonesia.
+      </p>
+      <p data-lang-en class="block">
+        In Indonesia, the number of people with hearing disabilities is much larger than most conversations acknowledge.
+        According to 2023 data from the Coordinating Ministry for Human Development and Culture (Kemenko PMK), roughly
+        <strong>22.97 million people</strong> are Deaf or hard of hearing. That is about 8.5 percent of the country's
+        population.
+      </p>
+
+      <div class="stat-row">
+        <div>
+          <div class="stat-num">22,97 <span style="font-size:18px;color:var(--muted);"><span
+                data-lang-id>juta</span><span data-lang-en>M</span></span></div>
+          <div class="stat-label"><span data-lang-id>Warga Indonesia dengan disabilitas rungu. <strong>Kemenko PMK,
+                2023.</strong></span><span data-lang-en>Indonesians with hearing disabilities. <strong>Kemenko PMK,
+                2023.</strong></span></div>
+        </div>
+        <div>
+          <div class="stat-num">~5.000</div>
+          <div class="stat-label"><span data-lang-id>Bayi lahir dengan gangguan pendengaran kongenital setiap tahun.
+              <strong>Kemenkes.</strong></span><span data-lang-en>Babies born with congenital hearing loss each year.
+              <strong>Kemenkes.</strong></span></div>
+        </div>
+        <div>
+          <div class="stat-num">27.983</div>
+          <div class="stat-label"><span data-lang-id>Siswa Tuli yang terdaftar di SLB. <strong>Dapodik,
+                2023.</strong></span><span data-lang-en>Deaf students enrolled in special-needs schools.
+              <strong>Dapodik, 2023.</strong></span></div>
+        </div>
+      </div>
+
+      <p data-lang-id>
+        Sebagian dari mereka menggunakan BISINDO, Bahasa Isyarat Indonesia, untuk berkomunikasi sehari-hari. BISINDO
+        adalah bahasa yang hidup dan ekspresif, lahir dari komunitas Tuli itu sendiri. Meski begitu, hampir tidak ada
+        alat bantu digital yang dirancang khusus untuknya.
+      </p>
+      <p data-lang-en class="block">
+        Many of them use BISINDO, the Indonesian Sign Language, as their daily way of communicating. BISINDO is a
+        living, expressive language born from the Deaf community itself. Despite that, almost no digital tools are built
+        specifically for it.
+      </p>
+
+      <p data-lang-id>
+        Aplikasi bahasa isyarat yang sudah ada kebanyakan melayani ASL, memerlukan koneksi internet, atau sekadar
+        menjadi kamus pasif. Ketika seorang Tuli perlu berbicara dengan petugas rumah sakit, guru, atau pedagang di
+        pasar, ia masih harus bergantung pada anggota keluarga untuk menerjemahkan.
+      </p>
+      <p data-lang-en class="block">
+        Most existing sign-language apps serve ASL, require an internet connection, or act only as passive dictionaries.
+        When a Deaf person needs to talk to a hospital clerk, a teacher, or a seller at the market, they usually still
+        have to rely on a family member to interpret.
+      </p>
+
+      <blockquote class="pullquote">
+        <span data-lang-id>Adik saya Tuli. Setiap kali ia harus ke dokter, saya ikut menemaninya sebagai juru bahasa.
+          Lalu saya mulai bertanya pada diri sendiri, bagaimana jadinya kalau ia bisa pergi sendiri?</span>
+        <span data-lang-en class="block">My little brother is Deaf. Every time she needs to see a doctor, I come along
+          as her interpreter. One day I started asking myself, what if she could go on her own?</span>
+      </blockquote>
+
+      <p data-lang-id>
+        KawanIsyarat dibuat untuk menjawab pertanyaan itu. Tujuannya bukan menggantikan juru bahasa manusia atau
+        meniadakan bahasa isyarat, melainkan membuka kesempatan bagi situasi sehari-hari untuk dijalani secara mandiri,
+        dengan harga diri yang tetap utuh.
+      </p>
+      <p data-lang-en class="block">
+        KawanIsyarat exists to answer that question. The goal is not to replace human interpreters or erase sign
+        language, but to open up everyday situations so they can be handled independently, with dignity fully intact.
+      </p>
+    </div>
+  </section>
+
+  <!-- VIDEO -->
+  <section id="video" class="video-section">
+    <div class="container">
+      <div class="video-head reveal">
+        <span class="eyebrow" data-lang-id>Tonton demo</span><span class="eyebrow" data-lang-en>Watch the demo</span>
+        <h2 style="margin-top: 20px;" data-lang-id>
+          Lihat aplikasinya <span class="em-serif">bekerja</span>.
+        </h2>
+        <h2 style="margin-top: 20px;" data-lang-en class="block">
+          See the app <span class="em-serif">in action</span>.
+        </h2>
+        <p class="video-sub" data-lang-id>
+          Video singkat yang menunjukkan percakapan dua arah antara adik saya dan saya, berjalan sepenuhnya di Pixel 6a tanpa koneksi internet.
+        </p>
+        <p class="video-sub block" data-lang-en>
+          A short film showing a two-way conversation between my sister and me, running entirely on a Pixel 6a with no internet connection.
+        </p>
+      </div>
+
+      <div class="video-frame reveal">
+        <!-- TODO: Ganti dengan embed video final.
+             Contoh YouTube: <iframe src="https://www.youtube.com/embed/VIDEO_ID" ...></iframe>
+             Contoh lokal:   <video src="demo.mp4" controls poster="demo-poster.jpg"></video> -->
+        <div class="video-placeholder" aria-label="Video demo akan ditayangkan di sini">
+          <svg viewBox="0 0 24 24" width="56" height="56" fill="none" stroke="currentColor" stroke-width="1.2"
+            stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="10" />
+            <polygon points="10 8 16 12 10 16 10 8" fill="currentColor" stroke="none" />
+          </svg>
+          <div class="video-placeholder-label" data-lang-id>Video demo segera hadir</div>
+          <div class="video-placeholder-label block" data-lang-en>Demo video coming soon</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- TWO-WAY -->
+  <section id="cara-kerja">
+    <div class="container">
+      <div class="two-way-head reveal">
+        <div>
+          <span class="eyebrow" data-lang-id>Cara kerja</span><span class="eyebrow" data-lang-en>How it works</span>
+          <h2 style="margin-top: 20px;" data-lang-id>
+            Dua arah.<br />
+            <span class="em-serif">Bukan hanya satu.</span>
+          </h2>
+          <h2 style="margin-top: 20px;" data-lang-en class="block">
+            Two directions.<br />
+            <span class="em-serif">Not just one.</span>
+          </h2>
+        </div>
+        <div>
+          <p data-lang-id>
+            Sebagian besar aplikasi bahasa isyarat hanya menerjemahkan dari satu arah, dari gerakan menjadi teks.
+            KawanIsyarat menjembatani keduanya, sehingga percakapan bisa mengalir sebagaimana mestinya, bergantian dan
+            saling merespons.
+          </p>
+          <p data-lang-en class="block">
+            Most sign-language apps translate in only one direction, from signs to text. KawanIsyarat bridges both
+            sides, so conversation can flow the way it is meant to, back and forth, with both people responding to each
+            other.
+          </p>
+        </div>
+      </div>
+
+      <div class="two-way-grid">
+        <div class="flow-card reveal">
+          <div class="flow-icon">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"
+              stroke-linecap="round" stroke-linejoin="round">
+              <path d="M8 14V6a2 2 0 1 1 4 0v6" />
+              <path d="M12 6V4a2 2 0 1 1 4 0v8" />
+              <path d="M16 7a2 2 0 1 1 4 0v7a7 7 0 0 1-7 7h-3a8 8 0 0 1-8-8 2 2 0 1 1 4 0" />
+              <path d="M12 14v-3" />
+            </svg>
+          </div>
+          <h3 data-lang-id>Dari isyarat, menjadi kalimat.</h3>
+          <h3 data-lang-en class="block">From signs to sentences.</h3>
+          <p data-lang-id>
+            Kamera menangkap gerakan tangan dan pose tubuh secara langsung. Aplikasi mengubahnya menjadi kalimat Bahasa
+            Indonesia yang natural, lalu memberi saran bagi lawan bicara agar bisa merespons dengan empati.
+          </p>
+          <p data-lang-en class="block">
+            The camera picks up hand movements and body pose in real time. The app turns them into natural Indonesian
+            sentences, and quietly offers the other person a suggestion on how to respond with care.
+          </p>
+          <ol class="flow-steps">
+            <li><span class="num">01</span><span data-lang-id>Kamera mendeteksi gerakan isyarat <strong>secara
+                  langsung</strong>, 30 frame per gerakan.</span><span data-lang-en class="block">The camera tracks
+                signs <strong>in real time</strong>, at 30 frames per motion.</span></li>
+            <li><span class="num">02</span><span data-lang-id>Model pengenalan isyarat mengubah gerakan menjadi urutan
+                kata BISINDO.</span><span data-lang-en class="block">A recognition model turns those movements into a
+                sequence of BISINDO words.</span></li>
+            <li><span class="num">03</span><span data-lang-id><strong>Gemma 4</strong> merangkainya menjadi kalimat
+                Bahasa Indonesia yang utuh.</span><span data-lang-en class="block"><strong>Gemma 4</strong> weaves them
+                into a complete Indonesian sentence.</span></li>
+            <li><span class="num">04</span><span data-lang-id>Saran singkat ditawarkan untuk lawan bicara agar bisa
+                merespons dengan empati.</span><span data-lang-en class="block">A short suggestion appears for the
+                listener, so they can reply with empathy.</span></li>
+          </ol>
+        </div>
+
+        <div class="flow-card reveal">
+          <div class="flow-icon">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"
+              stroke-linecap="round" stroke-linejoin="round">
+              <rect x="9" y="2" width="6" height="12" rx="3" />
+              <path d="M5 10v1a7 7 0 0 0 14 0v-1M12 18v4M9 22h6" />
+            </svg>
+          </div>
+          <h3 data-lang-id>Dari suara, menjadi teks yang mudah.</h3>
+          <h3 data-lang-en class="block">From speech to easy-to-read text.</h3>
+          <p data-lang-id>
+            Orang dengar berbicara ke mikrofon seperti biasa. Aplikasi mentranskripsinya lalu menyederhanakan
+            kalimatnya, memangkas kata pengisi dan membuatnya nyaman dibaca oleh teman Tuli.
+          </p>
+          <p data-lang-en class="block">
+            A hearing person speaks into the microphone as they normally would. The app transcribes it, then cleans the
+            sentence up, trimming filler words so a Deaf friend can read it comfortably.
+          </p>
+          <ol class="flow-steps">
+            <li><span class="num">01</span><span data-lang-id>Mikrofon merekam suara sebagai audio <strong>16
+                  kHz</strong> mono.</span><span data-lang-en class="block">The microphone records voice as <strong>16
+                  kHz</strong> mono audio.</span></li>
+            <li><span class="num">02</span><span data-lang-id><strong>Gemma 4 Audio</strong> menuliskannya langsung,
+                tanpa bantuan model terpisah.</span><span data-lang-en class="block"><strong>Gemma 4 Audio</strong>
+                transcribes it directly, with no separate model needed.</span></li>
+            <li><span class="num">03</span><span data-lang-id>Hasil transkrip disederhanakan. Kalimat panjang dipotong
+                dan istilah teknis dijelaskan.</span><span data-lang-en class="block">The transcript is simplified. Long
+                sentences get shortened and technical terms explained.</span></li>
+            <li><span class="num">04</span><span data-lang-id>Teks bersih ditampilkan dengan ukuran dan kontras yang
+                nyaman dibaca.</span><span data-lang-en class="block">The clean text is shown at a size and contrast
+                that is easy on the eyes.</span></li>
+          </ol>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <hr class="rule" />
+
+  <!-- FEATURES -->
+  <section id="fitur" class="features">
+    <div class="container">
+      <div class="features-head reveal">
+        <span class="eyebrow" data-lang-id>Fitur</span><span class="eyebrow" data-lang-en>Features</span>
+        <h2 style="margin-top: 20px;" data-lang-id>
+          Dirancang untuk situasi <span class="em-serif">nyata</span>.
+        </h2>
+        <h2 style="margin-top: 20px;" data-lang-en class="block">
+          Built for <span class="em-serif">real</span> situations.
+        </h2>
+        <p data-lang-id>
+          Bukan sekadar menerjemahkan. Aplikasi ini juga membantu belajar, memperkuat pemahaman kata, dan hadir di
+          saat-saat penting.
+        </p>
+        <p data-lang-en class="block">
+          More than translation. The app also helps you learn, strengthens vocabulary, and shows up when it matters
+          most.
+        </p>
+      </div>
+
+      <div class="bento">
+        <div class="bento-item bento-a reveal">
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"
+            stroke-linecap="round" stroke-linejoin="round">
+            <path d="M7 10l-3 3 3 3M4 13h9" />
+            <path d="M17 14l3-3-3-3M20 11h-9" />
+          </svg>
+          <h3 data-lang-id>Komunikasi langsung, dua arah.</h3>
+          <h3 data-lang-en class="block">Direct, two-way communication.</h3>
+          <p data-lang-id>Teman Tuli dan orang dengar bisa berbicara satu sama lain tanpa perantara, dengan giliran
+            sekitar empat sampai sembilan detik.</p>
+          <p data-lang-en class="block">Deaf and hearing people can talk to one another without a go-between, with each
+            turn taking about four to nine seconds.</p>
+        </div>
+
+        <div class="bento-item bento-b reveal">
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"
+            stroke-linecap="round" stroke-linejoin="round">
+            <path
+              d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" />
+          </svg>
+          <h3 data-lang-id>Saran empatik untuk lawan bicara.</h3>
+          <h3 data-lang-en class="block">Empathetic hints for the listener.</h3>
+          <p data-lang-id>Aplikasi ini tidak berhenti pada terjemahan. Ia juga menyisipkan panduan singkat agar orang
+            dengar yang baru pertama kali berbicara dengan teman Tuli tahu bagaimana merespons dengan pengertian.</p>
+          <p data-lang-en class="block">This goes beyond translation. It quietly drops short guidance for hearing
+            people, especially those meeting a Deaf friend for the first time, on how to reply with understanding.</p>
+        </div>
+
+        <div class="bento-item bento-c reveal">
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"
+            stroke-linecap="round" stroke-linejoin="round">
+            <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
+            <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
+          </svg>
+          <h3 data-lang-id>Kamus kata sulit.</h3>
+          <h3 data-lang-en class="block">A dictionary for difficult words.</h3>
+          <p data-lang-id>Ketik kata seperti "polis" atau "resep", lalu dapatkan penjelasan sederhana beserta contoh
+            pemakaian sehari-hari.</p>
+          <p data-lang-en class="block">Type a word like "policy" or "prescription" and get a plain-language explanation
+            with an everyday example.</p>
+        </div>
+
+        <div class="bento-item bento-d reveal">
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"
+            stroke-linecap="round" stroke-linejoin="round">
+            <path d="M23 7l-7 5 7 5V7z" />
+            <rect x="1" y="5" width="15" height="14" rx="2" ry="2" />
+          </svg>
+          <h3 data-lang-id>Pelatih isyarat berbasis AI.</h3>
+          <h3 data-lang-en class="block">An AI sign coach.</h3>
+          <p data-lang-id>Foto gerakan tangan Anda, lalu Gemma 4 Vision memberi masukan spesifik tentang bagian mana
+            yang sudah tepat dan mana yang masih perlu disesuaikan.</p>
+          <p data-lang-en class="block">Snap a photo of your hand shape, and Gemma 4 Vision gives specific feedback on
+            what is already right and what still needs adjusting.</p>
+        </div>
+
+        <div class="bento-item bento-e reveal">
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"
+            stroke-linecap="round" stroke-linejoin="round">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+            <polyline points="14 2 14 8 20 8" />
+            <line x1="16" y1="13" x2="8" y2="13" />
+            <line x1="16" y1="17" x2="8" y2="17" />
+          </svg>
+          <h3 data-lang-id>Penerjemah ungkapan.</h3>
+          <h3 data-lang-en class="block">Idiom translator.</h3>
+          <p data-lang-id>Ungkapan Indonesia seperti "kaki tangan" atau "tangan kanan" sering membingungkan. Aplikasi
+            ini menjelaskan artinya dengan lugas.</p>
+          <p data-lang-en class="block">Indonesian idioms can confuse even native speakers. The app unpacks them
+            plainly.</p>
+        </div>
+
+        <div class="bento-item bento-f accent reveal">
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"
+            stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+          </svg>
+          <h3 data-lang-id>Berjalan sepenuhnya di ponsel Anda.</h3>
+          <h3 data-lang-en class="block">Runs entirely on your phone.</h3>
+          <p data-lang-id>Setelah unduhan pertama, aplikasi tidak butuh internet lagi. Tidak ada data yang dikirim ke
+            server mana pun. Percakapan Anda tetap menjadi milik Anda.</p>
+          <p data-lang-en class="block">After the first download, the app never needs the internet again. No data
+            travels to any server. Your conversation stays yours.</p>
+        </div>
+
+        <div class="bento-item bento-g reveal">
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"
+            stroke-linecap="round" stroke-linejoin="round">
+            <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+            <line x1="12" y1="9" x2="12" y2="13" />
+            <line x1="12" y1="17" x2="12.01" y2="17" />
+          </svg>
+          <h3 data-lang-id>Mode Darurat satu sentuhan.</h3>
+          <h3 data-lang-en class="block">One-tap Emergency mode.</h3>
+          <p data-lang-id>Enam frasa penting, termasuk "Saya Tuli. Saya butuh bantuan medis.", langsung diucapkan lewat
+            text-to-speech. Tidak perlu mengetik atau mencari menu.</p>
+          <p data-lang-en class="block">Six critical phrases, including "I am Deaf. I need medical help.", play out loud
+            through text-to-speech. No typing, no menu hunting.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <hr class="rule" />
+
+  <!-- FOR BOTH -->
+  <section class="for-both">
+    <div class="container">
+      <div class="inner reveal">
+        <div>
+          <span class="eyebrow" data-lang-id>Untuk kedua sisi</span><span class="eyebrow" data-lang-en>For both
+            sides</span>
+          <h2 data-lang-id>Aplikasi ini juga untuk <span class="em-serif">orang dengar</span>.</h2>
+          <h2 data-lang-en class="block">This app is also for <span class="em-serif">hearing people</span>.</h2>
+          <p data-lang-id>
+            Selama ini, tanggung jawab untuk memahami bahasa isyarat sering kali dibebankan sepenuhnya kepada orang
+            Tuli. Merekalah yang harus menyesuaikan diri, menulis di kertas, atau menunggu kehadiran penerjemah.
+          </p>
+          <p data-lang-en class="block">
+            For far too long, the job of bridging communication has fallen entirely on Deaf people. They are the ones
+            who adapt, write on paper, or wait for an interpreter to arrive.
+          </p>
+          <p data-lang-id>
+            KawanIsyarat mengajak orang dengar ikut belajar, mulai dari alfabet SIBI, kata-kata dasar BISINDO, hingga
+            latihan gerakan dengan koreksi otomatis. Ketika kedua sisi saling mendekat, jarak berubah menjadi jembatan.
+          </p>
+          <p data-lang-en class="block">
+            KawanIsyarat invites hearing people to take part in the learning too, starting from the SIBI alphabet, basic
+            BISINDO words, and guided practice with automatic feedback. When both sides walk toward each other, the
+            distance between them turns into a bridge.
+          </p>
+        </div>
+
+        <div class="wall-illo">
+          <div class="wall-diagram">
+            <div class="wall-person">
+              <div class="label-sm"><span data-lang-id>Tuli</span><span data-lang-en>Deaf</span></div>
+              <div class="name">BISINDO</div>
+            </div>
+            <div class="wall-bridge">
+              <svg width="40" height="32" viewBox="0 0 40 32" fill="none" stroke="currentColor" stroke-width="1.5"
+                stroke-linecap="round">
+                <path d="M4 16 Q20 2, 36 16" />
+                <path d="M4 16 L36 16" stroke-dasharray="3 3" opacity="0.4" />
+              </svg>
+              <span><span data-lang-id>saling belajar</span><span data-lang-en>learning each other</span></span>
+            </div>
+            <div class="wall-person">
+              <div class="label-sm"><span data-lang-id>Dengar</span><span data-lang-en>Hearing</span></div>
+              <div class="name"><span data-lang-id>Verbal</span><span data-lang-en>Verbal</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- TECH -->
+  <section id="teknologi" class="tech">
+    <div class="container">
+      <div class="tech-layout">
+        <div class="reveal">
+          <span class="eyebrow" data-lang-id>Teknologi</span><span class="eyebrow" data-lang-en>Technology</span>
+          <h2 data-lang-id>
+            Satu model.<br />
+            <span class="em-serif">Semua tugas.</span>
+          </h2>
+          <h2 data-lang-en class="block">
+            One model.<br />
+            <span class="em-serif">Every task.</span>
+          </h2>
+          <p data-lang-id>
+            KawanIsyarat dijalankan oleh <strong>Gemma 4</strong>, model AI multimodal dari Google DeepMind yang bisa
+            memahami teks, suara, dan gambar sekaligus. Untuk membawanya berjalan di ponsel, kami memakai <strong>Cactus
+              SDK</strong>, pustaka inferensi C++ dengan kernel ARM-SIMD yang dioptimalkan untuk perangkat mobile.
+          </p>
+          <p data-lang-en class="block">
+            KawanIsyarat is powered by <strong>Gemma 4</strong>, a multimodal AI model from Google DeepMind that
+            understands text, audio, and images at once. To make it run on a phone, we use <strong>Cactus SDK</strong>,
+            a C++ inference library with ARM-SIMD kernels tuned for mobile devices.
+          </p>
+          <p data-lang-id>
+            Seluruh proses, mulai dari pengenalan isyarat, transkripsi suara, penerjemahan, hingga analisis foto,
+            terjadi di dalam ponsel Anda. Tidak ada satu pun data yang keluar dari perangkat.
+          </p>
+          <p data-lang-en class="block">
+            Every step, from sign recognition and voice transcription to translation and photo analysis, happens on your
+            phone. Not a single byte of data leaves the device.
+          </p>
+        </div>
+
+        <dl class="spec-list reveal">
+          <div class="spec-row">
+            <dt data-lang-id>Model</dt>
+            <dt data-lang-en>Model</dt>
+            <dd><strong>Gemma 4 E2B</strong> <span data-lang-id>multimodal, terkuantisasi INT4, sekitar 4 GB</span><span
+                data-lang-en>multimodal, INT4 quantized, about 4 GB</span></dd>
+          </div>
+          <div class="spec-row">
+            <dt data-lang-id>Inferensi</dt>
+            <dt data-lang-en>Inference</dt>
+            <dd><strong>Cactus SDK</strong>, <span data-lang-id>kernel C++ dan ARM SIMD di perangkat</span><span
+                data-lang-en>on-device C++ and ARM SIMD kernels</span></dd>
+          </div>
+          <div class="spec-row">
+            <dt data-lang-id>Pengenalan</dt>
+            <dt data-lang-en>Recognition</dt>
+            <dd><span data-lang-id>MediaPipe untuk pose dan tangan, <strong>1D CNN</strong> untuk klasifikasi
+                BISINDO</span><span data-lang-en>MediaPipe for pose and hands, <strong>1D CNN</strong> for BISINDO
+                classification</span></dd>
+          </div>
+          <div class="spec-row">
+            <dt data-lang-id>Audio</dt>
+            <dt data-lang-en>Audio</dt>
+            <dd><span data-lang-id>Gemma 4 Audio Encoder, tanpa Whisper atau model STT terpisah</span><span
+                data-lang-en>Gemma 4 Audio Encoder, no Whisper or separate STT model</span></dd>
+          </div>
+          <div class="spec-row">
+            <dt data-lang-id>Respons</dt>
+            <dt data-lang-en>Response</dt>
+            <dd><strong>4–9 <span data-lang-id>detik</span><span data-lang-en>seconds</span></strong> <span
+                data-lang-id>di ponsel kelas menengah (Pixel 6a, RAM 6 GB)</span><span data-lang-en>on a mid-range phone
+                (Pixel 6a, 6 GB RAM)</span></dd>
+          </div>
+          <div class="spec-row">
+            <dt data-lang-id>Privasi</dt>
+            <dt data-lang-en>Privacy</dt>
+            <dd><span data-lang-id>Sepenuhnya <strong>offline</strong> setelah unduhan pertama. Nol panggilan
+                API.</span><span data-lang-en>Fully <strong>offline</strong> after the first download. Zero API
+                calls.</span></dd>
+          </div>
+        </dl>
+      </div>
+    </div>
+  </section>
+
+  <!-- STORY -->
+  <section class="story">
+    <div class="inner reveal">
+      <span class="eyebrow" data-lang-id>Dari pengembang</span><span class="eyebrow" data-lang-en>From the
+        developer</span>
+      <h2 style="margin-top: 20px;" data-lang-id>Mengapa saya membuat ini.</h2>
+      <h2 style="margin-top: 20px;" data-lang-en class="block">Why I built this.</h2>
+
+      <p data-lang-id>
+        Nama saya Pradana. Adik saya Tuli sejak lahir, dan kami tumbuh besar di tengah percakapan yang hampir selalu
+        melibatkan pihak ketiga, entah itu saya, ibu, atau anggota keluarga lain yang ikut menerjemahkan.
+      </p>
+      <p data-lang-en class="block">
+        My name is Pradana. My little brother has been Deaf since birth, and the two of us grew up inside conversations
+        that almost always included a third person, whether it was me, our mother, or another family member stepping in
+        to interpret.
+      </p>
+
+      <p data-lang-id>
+        Lama kelamaan saya menyadari, masalah sebenarnya bukan ada pada dia. Masalahnya, tidak ada satu pun alat digital
+        yang dirancang untuk bahasanya. Google sedang menggarap SignGemma untuk ASL, Apple menambahkan live captions,
+        tapi tidak ada yang benar-benar hadir untuk BISINDO.
+      </p>
+      <p data-lang-en class="block">
+        Over time I realized that the problem was never with her. The problem was that not a single digital tool had
+        been designed with her language in mind. Google is working on SignGemma for ASL, Apple is adding live captions,
+        yet nothing shows up for BISINDO.
+      </p>
+
+      <p data-lang-id>
+        Selama beberapa bulan saya belajar Flutter, MediaPipe, dan integrasi FFI. Saya membongkar source code Cactus SDK
+        untuk mencari tahu mengapa Gemma 4 merespons dalam 153 detik, lalu menemukan satu flag tersembunyi yang mengubah
+        angka itu menjadi 4 detik. Saya belajar bahwa Gemma 4 Audio Encoder ternyata sanggup mentranskripsi tanpa
+        Whisper. Dan setiap fitur saya uji langsung bersama adik saya.
+      </p>
+      <p data-lang-en class="block">
+        For several months I learned Flutter, MediaPipe, and FFI integration. I dug through the Cactus SDK source code
+        to find out why Gemma 4 was taking 153 seconds to reply, and discovered a hidden flag that brought it down to 4
+        seconds. I learned that the Gemma 4 Audio Encoder could transcribe without Whisper. And every feature, I tested
+        with my brother.
+      </p>
+
+      <p data-lang-id>
+        Ini bukan produk yang ditargetkan untuk jutaan pengguna. Ini adalah surat cinta yang dibungkus dalam kode, untuk
+        adik saya, dan untuk siapa saja yang mengenali dirinya dalam cerita ini.
+      </p>
+      <p data-lang-en class="block">
+        This is not a product chasing millions of users. It is a love letter wrapped in code, for my brother, and for
+        anyone who sees a bit of themselves in this story.
+      </p>
+
+      <div class="signature">
+        <div class="sig-mark">P</div>
+        <div class="sig-text">
+          <div class="name">Pradana Yahya Abdillah</div>
+          <div class="role"><span data-lang-id>Pengembang · Universitas Gadjah Mada</span><span data-lang-en>Developer ·
+              Universitas Gadjah Mada</span></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- CLOSING -->
+  <section class="closing">
+    <div class="container reveal">
+      <h2 data-lang-id>Jika Anda pernah menjadi perantara sebuah percakapan, Anda akan paham mengapa ini penting.</h2>
+      <h2 data-lang-en class="block">If you have ever been the go-between in a conversation, you already know why this
+        matters.</h2>
+      <p data-lang-id>Unduh aplikasinya, cobalah sendiri, atau bagikan kepada teman yang mungkin membutuhkannya.</p>
+      <p data-lang-en class="block">Download the app, try it yourself, or share it with a friend who might need it.</p>
+      <div class="hero-cta">
+        <a href="#" class="btn-primary">
+          <span data-lang-id>Unduh untuk Android</span><span data-lang-en>Download for Android</span>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+            stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 5v14M19 12l-7 7-7-7" />
+          </svg>
+        </a>
+        <a href="mailto:pradanayahyaabdillah@mail.ugm.ac.id" class="link-arrow">
+          <span data-lang-id>Hubungi pengembang</span><span data-lang-en>Contact the developer</span>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+            stroke-linecap="round" stroke-linejoin="round">
+            <path d="M5 12h14M12 5l7 7-7 7" />
+          </svg>
+        </a>
+      </div>
+    </div>
+  </section>
+
+  <!-- FOOTER -->
+  <footer class="site">
+    <div class="footer-inner">
+      <div class="footer-mark">
+        <img src="logo.png" alt="" />
+        <span>kawanisyarat</span>
+      </div>
+      <div class="footer-meta">
+        <span data-lang-id>Dibangun di Yogyakarta</span><span data-lang-en>Built in Yogyakarta</span> ·
+        <a href="mailto:pradanayahyaabdillah@mail.ugm.ac.id">pradanayahyaabdillah@mail.ugm.ac.id</a>
+      </div>
+    </div>
+  </footer>
+
+  <script>
+    // Reveal on scroll
+    const observer = new IntersectionObserver((entries) => {
+      entries.forEach(entry => {
+        if (entry.isIntersecting) {
+          entry.target.classList.add('in');
+          observer.unobserve(entry.target);
+        }
+      });
+    }, { threshold: 0.12, rootMargin: '0px 0px -60px 0px' });
+    document.querySelectorAll('.reveal').forEach(el => observer.observe(el));
+
+    // Language switcher
+    const htmlEl = document.documentElement;
+    const savedLang = localStorage.getItem('kawanisyarat-lang');
+    const browserLang = (navigator.language || 'id').toLowerCase().startsWith('en') ? 'en' : 'id';
+    const initialLang = savedLang || browserLang || 'id';
+    setLang(initialLang);
+
+    document.querySelectorAll('[data-set-lang]').forEach(btn => {
+      btn.addEventListener('click', () => setLang(btn.dataset.setLang));
+    });
+
+    function setLang(lang) {
+      htmlEl.setAttribute('lang', lang);
+      localStorage.setItem('kawanisyarat-lang', lang);
+      document.querySelectorAll('[data-set-lang]').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.setLang === lang);
+      });
+      document.title = lang === 'en'
+        ? 'KawanIsyarat · Communication that is equal, for everyone.'
+        : 'KawanIsyarat · Komunikasi yang setara, untuk siapa saja.';
+    }
+  </script>
+
+</body>
+
+</html>
