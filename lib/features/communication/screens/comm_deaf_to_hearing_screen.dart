@@ -172,105 +172,114 @@ class _CommDeafToHearingScreenState
         title: 'Isyarat ke Teks',
         showBackButton: true,
       ),
-      body: SingleChildScrollView(
-        physics: BouncingScrollPhysics(),
-        child: Column(
-          children: [
-            // ── Mode toggle ─────────────────────────────────────────────
-            _buildModeToggle(state),
-            SizedBox(height: AppSpacing.md),
-            // Camera full-width tanpa padding samping
-            _buildCameraView(state)
-                .animate()
-                .fadeIn(duration: 400.ms),
-            if (_showModelInputPanel &&
-                state.isCapturing &&
-                state.detectionMode == DetectionMode.sign &&
-                state.modelInputFeatures.length >= 100)
-              Padding(
-                padding: EdgeInsets.only(
-                  top: AppSpacing.md,
-                  left: AppSpacing.xxl,
-                  right: AppSpacing.xxl,
-                ),
-                child: Align(
-                  alignment: Alignment.centerLeft,
-                  child: _buildModelInputPanel(state),
-                ),
-              ).animate().fadeIn(duration: 250.ms),
-            SizedBox(height: AppSpacing.xl),
-            // Konten di bawah kamera dengan padding normal
-            Padding(
-              padding: EdgeInsets.symmetric(horizontal: AppSpacing.xxl),
+      body: Column(
+        children: [
+          Expanded(
+            child: SingleChildScrollView(
+              physics: BouncingScrollPhysics(),
               child: Column(
                 children: [
-            // Error message
-            if (state.errorMessage != null)
-              Container(
-                width: double.infinity,
-                padding: EdgeInsets.symmetric(
-                  horizontal: AppSpacing.lg,
-                  vertical: AppSpacing.md,
-                ),
-                margin: EdgeInsets.only(bottom: AppSpacing.md),
-                decoration: BoxDecoration(
-                  color: AppColors.error.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(AppRadius.md),
-                  border: Border.all(
-                    color: AppColors.error.withOpacity(0.3),
-                  ),
-                ),
-                child: Row(
-                  children: [
-                    Icon(Icons.warning_rounded,
-                        color: AppColors.error, size: 18),
-                    SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        state.errorMessage!,
-                        style: GoogleFonts.beVietnamPro(
-                          fontSize: 13,
-                          color: AppColors.error,
+                  // ── Mode toggle ─────────────────────────────────────────────
+                  _buildModeToggle(state),
+                  SizedBox(height: AppSpacing.md),
+                  // Camera full-width tanpa padding samping
+                  _buildCameraView(state)
+                      .animate()
+                      .fadeIn(duration: 400.ms),
+                  if (_showModelInputPanel &&
+                      state.isCapturing &&
+                      state.detectionMode == DetectionMode.sign &&
+                      state.modelInputFeatures.length >= 100)
+                    Padding(
+                      padding: EdgeInsets.only(
+                        top: AppSpacing.md,
+                        left: AppSpacing.xxl,
+                        right: AppSpacing.xxl,
+                      ),
+                      child: Align(
+                        alignment: Alignment.centerLeft,
+                        child: _buildModelInputPanel(state),
+                      ),
+                    ).animate().fadeIn(duration: 250.ms),
+                  SizedBox(height: AppSpacing.xl),
+                  // Konten di bawah kamera dengan padding normal
+                  Padding(
+                    padding: EdgeInsets.symmetric(horizontal: AppSpacing.xxl),
+                    child: Column(
+                      children: [
+                  // Error message
+                  if (state.errorMessage != null)
+                    Container(
+                      width: double.infinity,
+                      padding: EdgeInsets.symmetric(
+                        horizontal: AppSpacing.lg,
+                        vertical: AppSpacing.md,
+                      ),
+                      margin: EdgeInsets.only(bottom: AppSpacing.md),
+                      decoration: BoxDecoration(
+                        color: AppColors.error.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(AppRadius.md),
+                        border: Border.all(
+                          color: AppColors.error.withOpacity(0.3),
                         ),
                       ),
-                    ),
-                  ],
-                ),
-              ).animate().fadeIn(duration: 300.ms).shake(
-                    duration: 400.ms,
-                    hz: 3,
-                    offset: Offset(2, 0),
+                      child: Row(
+                        children: [
+                          Icon(Icons.warning_rounded,
+                              color: AppColors.error, size: 18),
+                          SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              state.errorMessage!,
+                              style: GoogleFonts.beVietnamPro(
+                                fontSize: 13,
+                                color: AppColors.error,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ).animate().fadeIn(duration: 300.ms).shake(
+                          duration: 400.ms,
+                          hz: 3,
+                          offset: Offset(2, 0),
+                        ),
+                  // Gloss chips
+                  GlossChipRow(glossTokens: state.currentGloss),
+                  SizedBox(height: AppSpacing.lg),
+                  // AI Sentence Card
+                  AiSentenceCard(
+                    sentence: state.refinedSentence,
+                    isProcessing: state.isProcessing,
+                    onSpeak: () =>
+                        ref.read(deafToHearingProvider.notifier).speakSentence(),
                   ),
-            // Gloss chips
-            GlossChipRow(glossTokens: state.currentGloss),
-            SizedBox(height: AppSpacing.lg),
-            // AI Sentence Card
-            AiSentenceCard(
-              sentence: state.refinedSentence,
-              isProcessing: state.isProcessing,
-              onSpeak: () =>
-                  ref.read(deafToHearingProvider.notifier).speakSentence(),
-            ),
-            // Contextual Empathy — bullet tips dari Gemma 4
-            if (state.empathyTips.isNotEmpty)
-              _AiSuggestionCard(tips: state.empathyTips)
-                  .animate()
-                  .fadeIn(duration: 400.ms, delay: 100.ms)
-                  .slideY(begin: 0.1, end: 0)
-            else if (state.aiSuggestion != null && state.aiSuggestion!.isNotEmpty)
-              _AiSuggestionCard(tips: [state.aiSuggestion!])
-                  .animate()
-                  .fadeIn(duration: 400.ms, delay: 100.ms)
-                  .slideY(begin: 0.1, end: 0),
-            SizedBox(height: AppSpacing.xxxl),
-            // ── Per-sign recording controls ──────────────────────────────────
-            _buildControls(state),
-            SizedBox(height: AppSpacing.xxxl),
+                  // Contextual Empathy — bullet tips dari Gemma 4
+                  if (state.empathyTips.isNotEmpty)
+                    _AiSuggestionCard(tips: state.empathyTips)
+                        .animate()
+                        .fadeIn(duration: 400.ms, delay: 100.ms)
+                        .slideY(begin: 0.1, end: 0)
+                  else if (state.aiSuggestion != null && state.aiSuggestion!.isNotEmpty)
+                    _AiSuggestionCard(tips: [state.aiSuggestion!])
+                        .animate()
+                        .fadeIn(duration: 400.ms, delay: 100.ms)
+                        .slideY(begin: 0.1, end: 0),
+                  SizedBox(height: AppSpacing.xxxl),
+                  // ── Per-sign recording controls ──────────────────────────────────
+                  _buildControls(state),
+                  SizedBox(height: AppSpacing.lg),
+                      ],
+                    ),
+                  ),
                 ],
               ),
             ),
-          ],
-        ),
+          ),
+          // ── Sticky "Kirim ke AI" button ─────────────────────────────────
+          if (state.isCapturing && state.currentGloss.isNotEmpty && !state.isProcessing)
+            _buildStickyAIButton(state),
+        ],
       ),
       bottomNavigationBar: BottomNavBar(
         currentIndex: 0,
@@ -855,41 +864,59 @@ class _CommDeafToHearingScreenState
               _buildBisindoRecordButton(state, notifier, progress)
             else
               _buildAlphabetControls(state, notifier),
-
-            // ── Row 3: Send to AI ────────────────────────────────────────
-            if (state.currentGloss.isNotEmpty && !state.isProcessing)
-              Padding(
-                padding: EdgeInsets.only(top: AppSpacing.lg),
-                child: SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton.icon(
-                    onPressed: () => notifier.sendToAI(),
-                    icon: Icon(Icons.auto_awesome_rounded, size: 18),
-                    label: Text(
-                      'Kirim ke AI  [${_formatGlossForButton(state)}]',
-                      style: GoogleFonts.beVietnamPro(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w600,
-                      ),
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF6B48FF),
-                      foregroundColor: Colors.white,
-                      padding: EdgeInsets.symmetric(
-                        horizontal: AppSpacing.xl,
-                        vertical: AppSpacing.md,
-                      ),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(AppRadius.lg),
-                      ),
-                    ),
-                  ),
-                ),
-              ),
           ]
         ),
       ],
+    );
+  }
+
+  /// Sticky "Kirim ke AI" button — always visible above bottom nav.
+  Widget _buildStickyAIButton(DeafToHearingState state) {
+    return Container(
+      padding: EdgeInsets.symmetric(
+        horizontal: AppSpacing.xxl,
+        vertical: AppSpacing.md,
+      ),
+      decoration: BoxDecoration(
+        color: AppColors.background,
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.08),
+            blurRadius: 8,
+            offset: Offset(0, -2),
+          ),
+        ],
+      ),
+      child: SafeArea(
+        top: false,
+        child: SizedBox(
+          width: double.infinity,
+          child: ElevatedButton.icon(
+            onPressed: () =>
+                ref.read(deafToHearingProvider.notifier).sendToAI(),
+            icon: Icon(Icons.auto_awesome_rounded, size: 18),
+            label: Text(
+              'Kirim ke AI  [${_formatGlossForButton(state)}]',
+              style: GoogleFonts.beVietnamPro(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+              ),
+              overflow: TextOverflow.ellipsis,
+            ),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF6B48FF),
+              foregroundColor: Colors.white,
+              padding: EdgeInsets.symmetric(
+                horizontal: AppSpacing.xl,
+                vertical: AppSpacing.md,
+              ),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(AppRadius.lg),
+              ),
+            ),
+          ),
+        ),
+      ),
     );
   }
 

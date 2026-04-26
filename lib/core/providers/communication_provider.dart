@@ -108,12 +108,13 @@ class DeafToHearingState {
 
 final deafToHearingProvider =
     StateNotifierProvider<DeafToHearingNotifier, DeafToHearingState>((ref) {
-  return DeafToHearingNotifier();
+  return DeafToHearingNotifier(ref);
 });
 
 class DeafToHearingNotifier extends StateNotifier<DeafToHearingState> {
-  DeafToHearingNotifier() : super(const DeafToHearingState());
+  DeafToHearingNotifier(this._ref) : super(const DeafToHearingState());
 
+  final Ref _ref;
   final _gestureService = GestureService();
   final _gemmaService = GemmaService();
   final _ttsService = TtsService();
@@ -424,6 +425,20 @@ class DeafToHearingNotifier extends StateNotifier<DeafToHearingState> {
       final sentence = await _gemmaService.refineGloss(cleanedGloss);
       if (mounted) {
         state = state.copyWith(refinedSentence: sentence, isProcessing: false);
+      }
+
+      // Simpan ke riwayat percakapan
+      if (sentence.isNotEmpty) {
+        final entry = ConversationEntry(
+          id: DateTime.now().millisecondsSinceEpoch.toString(),
+          sourcePersona: UserPersona.tuli,
+          originalText: cleanedGloss.join(' '),
+          translatedText: sentence,
+          timestamp: DateTime.now(),
+          type: ConversationType.signToText,
+        );
+        _ref.read(conversationHistoryProvider.notifier).addEntry(entry);
+        debugPrint('[DeafToHearing] Saved to history: ${entry.id}');
       }
 
       if (mounted && sentence.isNotEmpty && gloss.length > 1) {
