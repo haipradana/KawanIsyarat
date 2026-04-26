@@ -3,7 +3,7 @@ import 'package:flutter_animate/flutter_animate.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../../../app/constants.dart';
 
-class GlossChipRow extends StatelessWidget {
+class GlossChipRow extends StatefulWidget {
   final List<String> glossTokens;
 
   const GlossChipRow({
@@ -12,8 +12,38 @@ class GlossChipRow extends StatelessWidget {
   });
 
   @override
+  State<GlossChipRow> createState() => _GlossChipRowState();
+}
+
+class _GlossChipRowState extends State<GlossChipRow> {
+  final ScrollController _scrollController = ScrollController();
+
+  @override
+  void didUpdateWidget(covariant GlossChipRow oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // Auto-scroll to end when new tokens are added
+    if (widget.glossTokens.length > oldWidget.glossTokens.length) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (_scrollController.hasClients) {
+          _scrollController.animateTo(
+            _scrollController.position.maxScrollExtent,
+            duration: const Duration(milliseconds: 300),
+            curve: Curves.easeOutCubic,
+          );
+        }
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    if (glossTokens.isEmpty) {
+    if (widget.glossTokens.isEmpty) {
       return Container(
         width: double.infinity,
         padding: EdgeInsets.symmetric(vertical: 16),
@@ -31,9 +61,10 @@ class GlossChipRow extends StatelessWidget {
     }
 
     return SingleChildScrollView(
+      controller: _scrollController,
       scrollDirection: Axis.horizontal,
       child: Row(
-        children: glossTokens.asMap().entries.map((entry) {
+        children: widget.glossTokens.asMap().entries.map((entry) {
           final index = entry.key;
           final token = entry.value;
           return Padding(

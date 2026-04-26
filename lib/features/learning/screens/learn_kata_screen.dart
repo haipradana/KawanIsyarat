@@ -40,10 +40,14 @@ class _LearnKataScreenState extends ConsumerState<LearnKataScreen>
 
   // ── Practice state ─────────────────────────────────────────────────────
   bool _isRecording = false;
-  int _bufferProgress = 0;
+  /// Elapsed milliseconds since recording started (driven by GestureService timer).
+  int _recordElapsedMs = 0;
+  int _recordTotalMs = 3000;
   int _attemptCount = 0;
   GestureResult? _lastResult;
   bool _isCorrect = false;
+
+  static const int _recordDurationMs = 3000; // 3 detik — identik test_video.py
 
   @override
   void initState() {
@@ -137,11 +141,13 @@ class _LearnKataScreenState extends ConsumerState<LearnKataScreen>
     if (!_modelReady || _isRecording) return;
     setState(() {
       _isRecording = true;
-      _bufferProgress = 0;
+      _recordElapsedMs = 0;
+      _recordTotalMs = _recordDurationMs;
       _lastResult = null;
     });
     _attemptCount++;
     _gesture.startSignRecording(
+      durationMs: _recordDurationMs,
       onSignDetected: (result) {
         if (!mounted) return;
         final correct =
@@ -149,14 +155,17 @@ class _LearnKataScreenState extends ConsumerState<LearnKataScreen>
                 result.confidence >= 0.30;
         setState(() {
           _isRecording = false;
-          _bufferProgress = 0;
+          _recordElapsedMs = 0;
           _lastResult = result;
           _isCorrect = correct;
         });
       },
-      onProgress: (count) {
+      onProgress: (elapsedMs, totalMs) {
         if (!mounted) return;
-        setState(() => _bufferProgress = count);
+        setState(() {
+          _recordElapsedMs = elapsedMs;
+          _recordTotalMs = totalMs;
+        });
       },
     );
   }
@@ -166,16 +175,20 @@ class _LearnKataScreenState extends ConsumerState<LearnKataScreen>
     if (!mounted) return;
     setState(() {
       _isRecording = false;
-      _bufferProgress = 0;
+      _recordElapsedMs = 0;
     });
   }
 
   void _resetForNextAttempt() {
     setState(() {
       _lastResult = null;
-      _bufferProgress = 0;
+      _recordElapsedMs = 0;
     });
   }
+
+  String _formatSec(int ms) => (ms / 1000).toStringAsFixed(1);
+
+
 
   String _pretty(String raw) => raw
       .split('_')
@@ -293,7 +306,7 @@ class _LearnKataScreenState extends ConsumerState<LearnKataScreen>
             Center(
               child: Text(
                 _isRecording
-                    ? 'Merekam... $_bufferProgress/30 frame'
+                    ? 'Merekam... ${_formatSec(_recordElapsedMs)}s / ${_formatSec(_recordTotalMs)}s'
                     : !_modelReady
                         ? 'Memuat model AI...'
                         : !_isCameraReady
@@ -400,7 +413,7 @@ class _LearnKataScreenState extends ConsumerState<LearnKataScreen>
                       SizedBox(width: 6),
                       Text(
                         _isRecording
-                            ? 'REC $_bufferProgress/30'
+                            ? 'REC ${_formatSec(_recordElapsedMs)}s'
                             : _isCameraReady && _modelReady
                                 ? 'SIAP'
                                 : 'LOADING',
@@ -446,7 +459,9 @@ class _LearnKataScreenState extends ConsumerState<LearnKataScreen>
 
   Widget _buildRecordButton() {
     final canRecord = _modelReady && _isCameraReady;
-    final progress = _bufferProgress / 30.0;
+    final progress = _recordTotalMs == 0
+        ? 0.0
+        : (_recordElapsedMs / _recordTotalMs).clamp(0.0, 1.0);
     return GestureDetector(
       onTap: () {
         if (!canRecord) return;

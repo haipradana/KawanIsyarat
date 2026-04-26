@@ -37,14 +37,18 @@ class DeafToHearingState {
   /// 98-dim nose-centered model input features for debug visualization.
   final List<double> modelInputFeatures;
   final String? errorMessage;
-  /// Per-sign recording: how many frames collected (0..30).
+  /// Per-sign recording: elapsed milliseconds since recording started.
   final int bufferProgress;
-  /// True while recording one sign (0→30 frames).
+  /// Per-sign recording: total target duration in milliseconds (default 3000).
+  final int bufferTotalMs;
+  /// True while recording one sign (timer-driven, default 3s window).
   final bool isRecordingSign;
   /// Current detection mode: sign gestures, SIBI alphabet, or BISINDO alphabet.
   final DetectionMode detectionMode;
   /// Live alphabet letter currently detected (alphabet mode only).
   final String? currentAlphabetLetter;
+  /// Alphabet vote progress: 0.0 → 1.0 toward commit threshold.
+  final double alphabetVoteProgress;
 
   const DeafToHearingState({
     this.currentGloss = const [],
@@ -56,9 +60,11 @@ class DeafToHearingState {
     this.modelInputFeatures = const [],
     this.errorMessage,
     this.bufferProgress = 0,
+    this.bufferTotalMs = 3000,
     this.isRecordingSign = false,
     this.detectionMode = DetectionMode.sign,
     this.currentAlphabetLetter,
+    this.alphabetVoteProgress = 0.0,
   });
 
   DeafToHearingState copyWith({
@@ -73,10 +79,12 @@ class DeafToHearingState {
     bool clearAiSuggestion = false,
     bool clearEmpathyTips = false,
     int? bufferProgress,
+    int? bufferTotalMs,
     bool? isRecordingSign,
     DetectionMode? detectionMode,
     String? currentAlphabetLetter,
     bool clearAlphabetLetter = false,
+    double? alphabetVoteProgress,
   }) {
     return DeafToHearingState(
       currentGloss: currentGloss ?? this.currentGloss,
@@ -88,10 +96,12 @@ class DeafToHearingState {
       modelInputFeatures: modelInputFeatures ?? this.modelInputFeatures,
       errorMessage: errorMessage,
       bufferProgress: bufferProgress ?? this.bufferProgress,
+      bufferTotalMs: bufferTotalMs ?? this.bufferTotalMs,
       isRecordingSign: isRecordingSign ?? this.isRecordingSign,
       detectionMode: detectionMode ?? this.detectionMode,
       currentAlphabetLetter:
           clearAlphabetLetter ? null : (currentAlphabetLetter ?? this.currentAlphabetLetter),
+      alphabetVoteProgress: alphabetVoteProgress ?? this.alphabetVoteProgress,
     );
   }
 }
@@ -116,10 +126,10 @@ class DeafToHearingNotifier extends StateNotifier<DeafToHearingState> {
 
   // Alphabet mode: majority vote over last N frames before committing a letter.
   final _alphabetVoteBuffer = <String?>[];
-  static const _voteWindowSize = 15;
-  static const _voteThreshold = 9; // 9/15 frames must agree
+  static const _voteWindowSize = 30;
+  static const _voteThreshold = 20; // 20/30 frames must agree (~2s hold)
   DateTime? _lastLetterCommitTime;
-  static const _commitCooldown = Duration(milliseconds: 1500);
+  static const _commitCooldown = Duration(milliseconds: 2000);
 
   /// Initialize gesture services (model + MediaPipe) and alphabet services.
   Future<void> initializeServices() async {
@@ -218,10 +228,24 @@ class DeafToHearingNotifier extends StateNotifier<DeafToHearingState> {
       _alphabetVoteBuffer.removeAt(0);
     }
 
-    // Always update live feedback
+    // Always update live feedback + vote progress
+    // Compute how close the leading letter is to the commit threshold.
+    double voteProgress = 0.0;
+    if (_alphabetVoteBuffer.isNotEmpty) {
+      final counts = <String, int>{};
+      for (final l in _alphabetVoteBuffer) {
+        if (l != null) counts[l] = (counts[l] ?? 0) + 1;
+      }
+      if (counts.isNotEmpty) {
+        final topCount = counts.values.reduce((a, b) => a > b ? a : b);
+        voteProgress = (topCount / _voteThreshold).clamp(0.0, 1.0);
+      }
+    }
+
     state = state.copyWith(
       currentAlphabetLetter: detectedLetter,
       clearAlphabetLetter: detectedLetter == null,
+      alphabetVoteProgress: voteProgress,
     );
 
     // Need full window before committing
@@ -251,7 +275,11 @@ class DeafToHearingNotifier extends StateNotifier<DeafToHearingState> {
     final newGloss = [...state.currentGloss, top.key];
     debugPrint(
         '[DeafToHearing] [ABC] Committed: ${top.key} (${top.value}/$_voteWindowSize) → [${newGloss.join("")}]');
-    state = state.copyWith(currentGloss: newGloss, errorMessage: null);
+    state = state.copyWith(
+      currentGloss: newGloss,
+      errorMessage: null,
+      alphabetVoteProgress: 0.0,
+    );
   }
 
   // ── Session lifecycle ────────────────────────────────────────────────────
@@ -288,10 +316,8 @@ class DeafToHearingNotifier extends StateNotifier<DeafToHearingState> {
     );
   }
 
-  // ── Per-sign recording (matches test_video.py) ───────────────────────────
-
-  /// Start recording ONE sign — collects 30 frames then auto-predicts.
-  /// Call on button press-down.
+  /// Start recording ONE sign — records for 3s then auto-predicts.
+  /// Call on button press.
   void startSignRecording() {
     if (!state.isCapturing || state.isRecordingSign) return;
     state = state.copyWith(
@@ -300,10 +326,14 @@ class DeafToHearingNotifier extends StateNotifier<DeafToHearingState> {
       errorMessage: null,
     );
     _gestureService.startSignRecording(
+      durationMs: 3000,
       onSignDetected: _onSignDetected,
-      onProgress: (count) {
+      onProgress: (elapsedMs, totalMs) {
         if (!mounted) return;
-        state = state.copyWith(bufferProgress: count);
+        state = state.copyWith(
+          bufferProgress: elapsedMs,
+          bufferTotalMs: totalMs,
+        );
       },
     );
     debugPrint('[DeafToHearing] startSignRecording');

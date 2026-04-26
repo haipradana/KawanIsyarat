@@ -52,16 +52,23 @@ class GestureService {
   // _derivFeatureDim = 300 (100 × 3: pos+vel+acc) — computed in _addTemporalDerivatives
   static const double _confidenceThreshold = 0.30;
 
-  // Frame decimation: training used uniform-30 from ~2s gesture (≈15fps effective).
-  // Camera runs at ~30fps → keep every 2nd frame so buffer covers ~2s = matches training.
+  // Frame decimation: camera ~30fps → keep every 2nd frame → ~15fps effective.
   int _frameCounter = 0;
   static const int _frameSkipRate = 2; // add 1 frame every 2 camera frames
 
-  // ── Per-sign recording state (matches test_video.py: collect 30 → predict once) ──
+  // ── Per-sign recording state ────────────────────────────────────────────
+  // Time-based: record for [_recordDurationMs] ms, collect all frames captured
+  // during that window, then uniform-resample to [_sequenceLength] before predict.
+  // Matches test_video.py: uniform-30 subsample from variable-length sequence.
   bool _isRecordingSign = false;
   void Function(GestureResult)? _onSignDetected;
-  void Function(int frameCount)? _onBufferProgress;
-  List<double>? _lastGoodHandFrame; // for forward/backward fill
+  /// Progress callback: (elapsedMs, totalMs) — fires every ~80ms during recording.
+  void Function(int elapsedMs, int totalMs)? _onBufferProgress;
+  Timer? _recordFinishTimer;
+  Timer? _recordProgressTimer;
+  DateTime? _recordStartedAt;
+  int _recordDurationMs = 3000;
+  static const int _maxRawFrames = 240; // safety cap (~16s at 15fps)
 
   final _mediaPipe = MediaPipeService();
   int _debugExtractCount = 0;
@@ -329,8 +336,9 @@ class GestureService {
   /// Internal: add one frame to buffer.
   /// Decimation is handled by addFrameFromCameraAsync (before MediaPipe).
   ///
-  /// In per-sign recording mode: collects exactly [_sequenceLength] frames
-  /// then auto-predicts once (matching test_video.py / training pipeline).
+  /// Like test_video.py: collects ALL frames during the recording window
+  /// (including those without hands — NaN stays). After timer fires,
+  /// uniform-resample to 30 → std-normalize (NaN→0) → predict.
   void _addFrameToBuffer(List<double> noseCenteredFeatures) {
     if (noseCenteredFeatures.length != _rawFeatureDim) return;
 
@@ -339,7 +347,7 @@ class GestureService {
 
     if (!_isRecordingSign) return; // only collect during active sign recording
 
-    // Check if this frame has valid hand data
+    // Check if this frame has valid hand data (for logging only)
     bool hasHandData = false;
     for (int i = 0; i < 84; i++) {
       if (noseCenteredFeatures[i].isFinite && noseCenteredFeatures[i].abs() > 1e-6) {
@@ -348,38 +356,19 @@ class GestureService {
       }
     }
 
-    // Forward-fill: if hands not detected this frame, use last known positions.
-    // Prevents buffer from filling with NaN when hand detection briefly fails.
-    final frameToAdd = List<double>.from(noseCenteredFeatures);
-    if (!hasHandData && _lastGoodHandFrame != null) {
-      for (int i = 0; i < 84; i++) {
-        frameToAdd[i] = _lastGoodHandFrame![i];
-      }
-    } else if (hasHandData) {
-      _lastGoodHandFrame = List<double>.from(frameToAdd.sublist(0, 84));
-    }
-
-    _rawFrameBuffer.add(frameToAdd);
-    _onBufferProgress?.call(_rawFrameBuffer.length);
+    // Add frame as-is — no forward-fill. Matches test_video.py behavior:
+    // frames without hand detection keep NaN values, handled by std-normalize.
+    _rawFrameBuffer.add(List<double>.from(noseCenteredFeatures));
 
     final len = _rawFrameBuffer.length;
-    if (len == 1 || len % 10 == 0 || len == _sequenceLength) {
-      debugPrint('[GestureService] frame $len/$_sequenceLength (hands=$hasHandData)');
+    if (len == 1 || len % 10 == 0) {
+      debugPrint('[GestureService] frame $len (hands=$hasHandData)');
     }
 
-    // When exactly 30 frames collected → predict once (matches test_video.py)
-    if (len >= _sequenceLength) {
-      _isRecordingSign = false;
-      _onBufferProgress?.call(_sequenceLength);
-
-      final result = predict();
-      debugPrint('[GestureService] Sign predict: $result');
-      if (result != null) {
-        _onSignDetected?.call(result);
-      } else {
-        _onSignDetected?.call(GestureResult(word: '?', confidence: 0.0, labelIndex: -1));
-      }
-      clearBuffer();
+    // Safety cap to prevent unbounded buffer growth if timer fails.
+    if (len >= _maxRawFrames) {
+      debugPrint('[GestureService] safety cap hit ($len frames) — finishing');
+      _finishSignRecording();
     }
   }
 
@@ -410,61 +399,7 @@ class GestureService {
     return rawKeypoints;
   }
 
-  // ════════════════════════════════════════════════════════════════════════
-  // FILL — forward + backward fill for missing hand frames
-  // ════════════════════════════════════════════════════════════════════════
 
-  /// Fill frames where hands were not detected using adjacent detected frames.
-  ///
-  /// Forward fill: propagates last known hand position forward.
-  /// Backward fill: fills leading NaN frames from first detected frame.
-  ///
-  /// Only fills hand slots (features[0:84]). Pose anchors (84:98) keep their
-  /// original values (pose is usually more stable than hand detection).
-  List<List<double>> _fillHandFrames(List<List<double>> buffer) {
-    bool hasHands(List<double> frame) {
-      for (int i = 0; i < 84; i++) {
-        if (frame[i].isFinite && frame[i].abs() > 1e-6) return true;
-      }
-      return false;
-    }
-
-    final filled = buffer.map((f) => List<double>.from(f)).toList();
-
-    // Forward fill
-    List<double>? lastGood;
-    for (int t = 0; t < filled.length; t++) {
-      if (hasHands(filled[t])) {
-        lastGood = filled[t].sublist(0, 84);
-      } else if (lastGood != null) {
-        for (int i = 0; i < 84; i++) {
-          filled[t][i] = lastGood[i];
-        }
-      }
-    }
-
-    // Backward fill (frames before first detection)
-    List<double>? firstGood;
-    for (int t = 0; t < filled.length; t++) {
-      if (hasHands(filled[t])) {
-        firstGood = filled[t].sublist(0, 84);
-        break;
-      }
-    }
-    if (firstGood != null) {
-      for (int t = 0; t < filled.length; t++) {
-        if (!hasHands(filled[t])) {
-          for (int i = 0; i < 84; i++) {
-            filled[t][i] = firstGood[i];
-          }
-        } else {
-          break; // stop at first real detection
-        }
-      }
-    }
-
-    return filled;
-  }
 
   // ════════════════════════════════════════════════════════════════════════
   // PREDICTION
@@ -472,11 +407,12 @@ class GestureService {
 
   /// Run inference on current buffer.
   ///
-  /// Pipeline: raw buffer → fill missing hand frames → std-normalize → temporal derivatives → TFLite.
+  /// Pipeline (identik test_video.py):
+  ///   raw buffer → std-normalize (NaN→0) → temporal derivatives → TFLite.
   GestureResult? predict() {
     if (_interpreter == null) return null;
 
-    // Need at least a few genuine hand detections (before forward/backward fill)
+    // Need at least a few genuine hand detections
     const minHandFrames = 3;
     final framesWithHands = _rawFrameBuffer.where((frame) {
       for (int i = 0; i < 84; i++) {
@@ -493,18 +429,14 @@ class GestureService {
       return null;
     }
 
-    // Pad with NaN for sequences shorter than 30 (shouldn't happen in per-sign mode)
+    // Pad with NaN for sequences shorter than 30
     final paddedBuffer = List<List<double>>.from(_rawFrameBuffer);
     while (paddedBuffer.length < _sequenceLength) {
       paddedBuffer.insert(0, List<double>.filled(_rawFeatureDim, double.nan));
     }
 
-    // Fill missing hand frames (forward + backward fill) to avoid model seeing zeros
-    // where hands should be. Matches training assumption that hands are present.
-    final filledBuffer = _fillHandFrames(paddedBuffer);
-
-    // 1. Std-normalize the sequence (matches training normalize_sequence_std)
-    final normalized = _stdNormalize(filledBuffer);
+    // Std-normalize the sequence — NaN→0 (matches test_video.py normalize_sequence_std)
+    final normalized = _stdNormalize(paddedBuffer);
 
     // 2. Add temporal derivatives: (30, 98) → (30, 294)
     final withDerivatives = _addTemporalDerivatives(normalized);
@@ -550,11 +482,10 @@ class GestureService {
   void clearBuffer() {
     _rawFrameBuffer.clear();
     _frameCounter = 0;
-    _lastGoodHandFrame = null;
   }
 
   // ════════════════════════════════════════════════════════════════════════
-  // CAPTURE — per-sign mode matching test_video.py / training pipeline
+  // CAPTURE — time-based recording (identik test_video.py)
   // ════════════════════════════════════════════════════════════════════════
 
   /// Start a gesture session (enables MediaPipe, camera stream).
@@ -574,31 +505,135 @@ class GestureService {
     _mediaPipe.stopCapture();
     _timer?.cancel();
     _timer = null;
+    _recordFinishTimer?.cancel();
+    _recordProgressTimer?.cancel();
     _onSignDetected = null;
     _onBufferProgress = null;
   }
 
-  /// Start recording ONE sign.
+  /// Start recording ONE sign for [durationMs] milliseconds.
   ///
-  /// Collects exactly [_sequenceLength] frames then auto-predicts (same as
-  /// test_video.py). [onSignDetected] fires once with the result.
-  /// [onProgress] fires each frame with current count (0..30).
+  /// Records ALL frames during the time window (including frames without
+  /// hands — they keep NaN, matching test_video.py behavior). After timer
+  /// fires: uniform-resample to [_sequenceLength] → std-normalize → predict.
+  ///
+  /// [onProgress] fires every ~80ms with `(elapsedMs, totalMs)`.
   void startSignRecording({
     required void Function(GestureResult result) onSignDetected,
-    void Function(int frameCount)? onProgress,
+    void Function(int elapsedMs, int totalMs)? onProgress,
+    int durationMs = 3000,
   }) {
     if (!_isModelLoaded || !_isCapturing) return;
     clearBuffer();
     _frameCounter = 0;
     _onSignDetected = onSignDetected;
     _onBufferProgress = onProgress;
+    _recordDurationMs = durationMs;
+    _recordStartedAt = DateTime.now();
     _isRecordingSign = true;
-    debugPrint('[GestureService] startSignRecording');
+
+    _recordFinishTimer?.cancel();
+    _recordProgressTimer?.cancel();
+
+    // Periodic progress updates (~12.5 Hz)
+    _onBufferProgress?.call(0, durationMs);
+    _recordProgressTimer = Timer.periodic(
+      const Duration(milliseconds: 80),
+      (t) {
+        if (!_isRecordingSign || _recordStartedAt == null) {
+          t.cancel();
+          return;
+        }
+        final elapsed =
+            DateTime.now().difference(_recordStartedAt!).inMilliseconds;
+        _onBufferProgress?.call(
+          elapsed.clamp(0, _recordDurationMs),
+          _recordDurationMs,
+        );
+      },
+    );
+
+    // Auto-finish at duration
+    _recordFinishTimer = Timer(Duration(milliseconds: durationMs), () {
+      if (_isRecordingSign) _finishSignRecording();
+    });
+
+    debugPrint('[GestureService] startSignRecording duration=${durationMs}ms');
   }
 
-  /// Cancel current sign recording (e.g. user released button before 30 frames).
+  /// Internal: finish a sign recording — uniform-resample buffer to 30 frames
+  /// then run prediction once. Called by timer or safety-cap.
+  void _finishSignRecording() {
+    if (!_isRecordingSign) return;
+    _isRecordingSign = false;
+    _recordFinishTimer?.cancel();
+    _recordProgressTimer?.cancel();
+    _recordFinishTimer = null;
+    _recordProgressTimer = null;
+
+    // Final 100% progress tick so UI snaps to full.
+    _onBufferProgress?.call(_recordDurationMs, _recordDurationMs);
+
+    final captured = _rawFrameBuffer.length;
+    final handFrames = _rawFrameBuffer.where((frame) {
+      for (int i = 0; i < 84; i++) {
+        if (frame[i].isFinite && frame[i].abs() > 1e-6) return true;
+      }
+      return false;
+    }).length;
+    debugPrint(
+      '[GestureService] finish: captured=$captured frames '
+      '(hands=$handFrames) over ${_recordDurationMs}ms',
+    );
+
+    // Uniform-resample to exactly _sequenceLength — matches test_video.py:
+    //   indices = np.linspace(0, n-1, 30).round()
+    if (captured > 0 && captured != _sequenceLength) {
+      final resampled = _uniformResample(_rawFrameBuffer, _sequenceLength);
+      _rawFrameBuffer
+        ..clear()
+        ..addAll(resampled);
+      debugPrint('[GestureService] resampled $captured → $_sequenceLength');
+    }
+
+    final result = predict();
+    debugPrint('[GestureService] Sign predict: $result');
+    if (result != null) {
+      _onSignDetected?.call(result);
+    } else {
+      _onSignDetected
+          ?.call(GestureResult(word: '?', confidence: 0.0, labelIndex: -1));
+    }
+    clearBuffer();
+  }
+
+  /// Uniform-resample [src] to exactly [target] frames using nearest-index
+  /// sampling — matches `np.linspace(0, n-1, target).round()` from test_video.py.
+  List<List<double>> _uniformResample(
+    List<List<double>> src,
+    int target,
+  ) {
+    final n = src.length;
+    if (n == target) return src.map((f) => List<double>.from(f)).toList();
+    if (n == 0) return [];
+    if (n == 1) {
+      return List.generate(target, (_) => List<double>.from(src[0]));
+    }
+    final out = <List<double>>[];
+    for (int i = 0; i < target; i++) {
+      final idx = (i * (n - 1) / (target - 1)).round().clamp(0, n - 1);
+      out.add(List<double>.from(src[idx]));
+    }
+    return out;
+  }
+
+  /// Cancel current sign recording (e.g. user tapped again to abort).
   void cancelSignRecording() {
     _isRecordingSign = false;
+    _recordFinishTimer?.cancel();
+    _recordProgressTimer?.cancel();
+    _recordFinishTimer = null;
+    _recordProgressTimer = null;
     _onSignDetected = null;
     _onBufferProgress = null;
     clearBuffer();
@@ -638,6 +673,8 @@ class GestureService {
 
   void dispose() {
     _timer?.cancel();
+    _recordFinishTimer?.cancel();
+    _recordProgressTimer?.cancel();
     _glossController.close();
     _interpreter?.close();
     _mediaPipe.stopCapture();
