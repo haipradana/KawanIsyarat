@@ -1,28 +1,34 @@
 {
   "label_to_index": {
-    "maaf": 0,
-    "saya": 1,
-    "terima_kasih": 2,
-    "tuli": 3,
-    "dengar": 4,
-    "rumah": 5
+    "air": 0,
+    "belajar": 1,
+    "hari": 2,
+    "maaf": 3,
+    "makan": 4,
+    "saya": 5,
+    "terima_kasih": 6,
+    "tuli": 7
   },
   "index_to_label": {
-    "0": "maaf",
-    "1": "saya",
-    "2": "terima_kasih",
-    "3": "tuli",
-    "4": "dengar",
-    "5": "rumah"
+    "0": "air",
+    "1": "belajar",
+    "2": "hari",
+    "3": "maaf",
+    "4": "makan",
+    "5": "saya",
+    "6": "terima_kasih",
+    "7": "tuli"
   },
-  "num_classes": 6,
+  "num_classes": 8,
   "labels": [
+    "air",
+    "belajar",
+    "hari",
     "maaf",
+    "makan",
     "saya",
     "terima_kasih",
-    "tuli",
-    "dengar",
-    "rumah"
+    "tuli"
   ],
   "feature_dim": 100,
   "sequence_len": 30,

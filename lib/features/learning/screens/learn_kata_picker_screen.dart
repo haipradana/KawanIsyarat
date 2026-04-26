@@ -26,12 +26,15 @@ class _LearnKataPickerScreenState extends State<LearnKataPickerScreen> {
 
   /// Deskripsi singkat per label — tampil di bawah preview.
   static const _descriptions = {
-    'maaf': 'Gerakan tangan membentuk permintaan maaf — sering dipakai saat meminta izin atau ketika melakukan kesalahan.',
-    'saya': 'Isyarat menunjuk ke diri sendiri — kata dasar untuk memperkenalkan diri.',
-    'terima_kasih': 'Gerakan tangan dari dagu ke depan — ungkapan rasa syukur.',
-    'tuli': 'Isyarat menunjuk ke telinga — menunjukkan identitas Tuli.',
-    'dengar': 'Gerakan tangan dekat telinga — berkaitan dengan kemampuan mendengar.',
-    'rumah': 'Kedua tangan membentuk atap rumah — melambangkan tempat tinggal.',
+    'saya'        : 'Isyarat menunjuk ke diri sendiri — kata dasar untuk memperkenalkan diri.',
+    'terima_kasih': 'Gerakan tangan dari dagu ke depan — ungkapan rasa syukur yang tulus.',
+    'tuli'        : 'Isyarat menunjuk ke telinga — menunjukkan identitas Tuli dengan bangga.',
+    'maaf'        : 'Gerakan tangan membentuk permintaan maaf — dipakai saat meminta izin atau melakukan kesalahan.',
+    'belajar'     : 'Gerakan tangan yang menggambarkan aktivitas membaca dan menyerap ilmu.',
+    'air'         : 'Isyarat yang menggambarkan air mengalir — kata dasar kebutuhan sehari-hari.',
+    'hari'        : 'Gerakan yang menunjukkan perputaran waktu — dipakai untuk menyebut hari.',
+    'lagi'        : 'Isyarat pengulangan — menunjukkan "sekali lagi" atau "tambah lagi".',
+    'makan'       : 'Gerakan tangan menuju mulut — salah satu kata paling sering dipakai sehari-hari.',
   };
 
   @override

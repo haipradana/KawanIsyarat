@@ -58,6 +58,7 @@ flutter:
 
   assets:
     - assets/images/
+    - assets/images/alfabet/
     - assets/images/alfabet/sibi/
     - assets/images/alfabet/bisindo/
     - assets/models/

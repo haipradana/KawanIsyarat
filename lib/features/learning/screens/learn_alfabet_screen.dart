@@ -363,83 +363,121 @@ class _LearnAlfabetScreenState extends ConsumerState<LearnAlfabetScreen> {
 
   // ─── Mode info card ────────────────────────────────────────────────────────
 
-  Widget _buildModeInfoCard() {
-    return Container(
-      key: ValueKey(_mode),
-      width: double.infinity,
-      padding: EdgeInsets.all(AppSpacing.lg),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [
-            AppColors.primary.withOpacity(0.10),
-            AppColors.primary.withOpacity(0.04),
-          ],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-        borderRadius: BorderRadius.circular(AppRadius.lg),
-        border: Border.all(
-          color: AppColors.primary.withOpacity(0.18),
-          width: 1,
-        ),
+  String get _fullChartAsset => _mode == AlphabetMode.sibi
+      ? 'assets/images/alfabet/alfabet_sibi_full.jpg'
+      : 'assets/images/alfabet/alfabet_bisindo_full.jpg';
+
+  void _showFullChart() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => _FullChartSheet(
+        assetPath: _fullChartAsset,
+        title: 'Abjad $_modeName Lengkap',
       ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Icon(
-            _mode == AlphabetMode.sibi
-                ? Icons.info_outline_rounded
-                : Icons.lightbulb_outline_rounded,
-            color: AppColors.primary,
-            size: 20,
+    );
+  }
+
+  Widget _buildModeInfoCard() {
+    return GestureDetector(
+      onTap: _showFullChart,
+      child: Container(
+        key: ValueKey(_mode),
+        width: double.infinity,
+        padding: EdgeInsets.all(AppSpacing.lg),
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            colors: [
+              AppColors.primary.withOpacity(0.10),
+              AppColors.primary.withOpacity(0.04),
+            ],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
           ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Text(
-                      _modeName,
-                      style: GoogleFonts.plusJakartaSans(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w800,
-                        color: AppColors.primary,
-                      ),
-                    ),
-                    const SizedBox(width: 6),
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 6, vertical: 2),
-                      decoration: BoxDecoration(
-                        color: AppColors.primary.withOpacity(0.15),
-                        borderRadius: BorderRadius.circular(4),
-                      ),
-                      child: Text(
-                        _modeHandsBadge,
-                        style: GoogleFonts.jetBrainsMono(
-                          fontSize: 9,
-                          fontWeight: FontWeight.w700,
+          borderRadius: BorderRadius.circular(AppRadius.lg),
+          border: Border.all(
+            color: AppColors.primary.withOpacity(0.18),
+            width: 1,
+          ),
+        ),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(
+              _mode == AlphabetMode.sibi
+                  ? Icons.info_outline_rounded
+                  : Icons.lightbulb_outline_rounded,
+              color: AppColors.primary,
+              size: 20,
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Text(
+                        _modeName,
+                        style: GoogleFonts.plusJakartaSans(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w800,
                           color: AppColors.primary,
                         ),
                       ),
+                      const SizedBox(width: 6),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 6, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: AppColors.primary.withOpacity(0.15),
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: Text(
+                          _modeHandsBadge,
+                          style: GoogleFonts.jetBrainsMono(
+                            fontSize: 9,
+                            fontWeight: FontWeight.w700,
+                            color: AppColors.primary,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    _modeDescription,
+                    style: GoogleFonts.beVietnamPro(
+                      fontSize: 12,
+                      color: AppColors.textSecondary,
+                      height: 1.4,
                     ),
-                  ],
-                ),
-                const SizedBox(height: 4),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 8),
+            // Hint: tap to see full chart
+            Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(Icons.grid_view_rounded,
+                    size: 16, color: AppColors.primary.withOpacity(0.7)),
+                const SizedBox(height: 2),
                 Text(
-                  _modeDescription,
+                  'Lihat\nsemua',
+                  textAlign: TextAlign.center,
                   style: GoogleFonts.beVietnamPro(
-                    fontSize: 12,
-                    color: AppColors.textSecondary,
-                    height: 1.4,
+                    fontSize: 9,
+                    color: AppColors.primary.withOpacity(0.7),
+                    height: 1.2,
                   ),
                 ),
               ],
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -620,5 +658,116 @@ class _LetterTile extends StatelessWidget {
           duration: 280.ms,
           delay: Duration(milliseconds: delay),
         );
+  }
+}
+
+// ─── Full Alphabet Chart Bottom Sheet ─────────────────────────────────────────
+
+class _FullChartSheet extends StatelessWidget {
+  final String assetPath;
+  final String title;
+
+  const _FullChartSheet({
+    required this.assetPath,
+    required this.title,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      height: MediaQuery.of(context).size.height * 0.92,
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      child: Column(
+        children: [
+          // Handle bar
+          const SizedBox(height: 12),
+          Container(
+            width: 40,
+            height: 4,
+            decoration: BoxDecoration(
+              color: AppColors.outlineVariant,
+              borderRadius: BorderRadius.circular(2),
+            ),
+          ),
+          const SizedBox(height: 16),
+
+          // Title + close
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    title,
+                    style: GoogleFonts.plusJakartaSans(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w800,
+                      color: AppColors.textPrimary,
+                    ),
+                  ),
+                ),
+                IconButton(
+                  onPressed: () => Navigator.pop(context),
+                  icon: Icon(Icons.close_rounded,
+                      color: AppColors.textSecondary),
+                  style: IconButton.styleFrom(
+                    backgroundColor: AppColors.surfaceContainerHigh,
+                    shape: const CircleBorder(),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 8),
+
+          // Zoomable image
+          Expanded(
+            child: InteractiveViewer(
+              minScale: 0.8,
+              maxScale: 5.0,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                child: Image.asset(
+                  assetPath,
+                  fit: BoxFit.contain,
+                  errorBuilder: (_, __, ___) => Center(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.broken_image_rounded,
+                            size: 64, color: AppColors.outlineVariant),
+                        const SizedBox(height: 12),
+                        Text(
+                          'Gambar tidak tersedia',
+                          style: GoogleFonts.beVietnamPro(
+                            color: AppColors.textSecondary,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+
+          // Hint text
+          Padding(
+            padding: EdgeInsets.only(
+                bottom: MediaQuery.of(context).padding.bottom + 16),
+            child: Text(
+              'Cubit untuk zoom • Geser untuk tutup',
+              style: GoogleFonts.beVietnamPro(
+                fontSize: 11,
+                color: AppColors.outlineVariant,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 }
