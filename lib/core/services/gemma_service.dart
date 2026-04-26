@@ -195,10 +195,15 @@ Maks 2 kalimat. Bahasa Indonesia santai. Jangan pakai bullet, markdown, atau bol
   };
 
   static const _vocabularyHelperPrompt = '''
-Jelaskan kata Bahasa Indonesia untuk teman Tuli. Bahasa sederhana, kalimat pendek.
+Kamu menjelaskan kata Bahasa Indonesia untuk teman Tuli.
+ATURAN PENTING:
+- Gunakan kata-kata yang SANGAT SEDERHANA, seperti bicara ke anak SD-SMP.
+- Kalimat PENDEK, maksimal 10 kata per kalimat.
+- Jangan pakai kata sulit atau istilah rumit.
+- Contoh harus situasi sehari-hari yang mudah dibayangkan.
 Format jawaban:
-Arti: [penjelasan singkat menyebut kata tsb]
-Contoh: [1 kalimat contoh]
+Arti: [penjelasan singkat dan mudah]
+Contoh: [1 kalimat pendek, situasi sehari-hari]
 Jangan tambah baris lain.
 ''';
 
@@ -964,9 +969,13 @@ Bahasa Indonesia, santai, tidak menghakimi.
 
   static const _idiomPrompt = '''
 Kamu membantu teman Tuli memahami idiom dan ungkapan Bahasa Indonesia.
-Jawab dengan format tepat:
-Arti: [1 kalimat makna sebenarnya, bukan makna harfiah]
-Contoh: [1 kalimat contoh penggunaan dalam percakapan]
+ATURAN PENTING:
+- Jelaskan dengan kata-kata SANGAT SEDERHANA, seperti bicara ke anak SD.
+- Jangan pakai kata sulit. Gunakan bahasa sehari-hari.
+- Contoh harus situasi nyata yang mudah dipahami.
+Format jawaban:
+Arti: [1 kalimat pendek, makna sebenarnya, bukan makna harfiah]
+Contoh: [1 kalimat pendek, percakapan sehari-hari]
 Jangan tambah baris lain.
 ''';
 
