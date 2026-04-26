@@ -2,12 +2,30 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:go_router/go_router.dart';
 import '../../../app/constants.dart';
+import '../../learning/widgets/bisindo_video_preview.dart';
 
+/// "Video Hari Ini" — kartu di home screen yang menampilkan klip BISINDO
+/// untuk satu kata dari label aktif. Tap untuk masuk ke flow Belajar Kata.
 class WordOfDayCard extends StatelessWidget {
-  const WordOfDayCard({super.key});
+  /// Kata default yang ditampilkan di home. Harus salah satu dari label di
+  /// `bisindo_wl_labels.json`. Default ke "terima_kasih".
+  final String word;
+
+  const WordOfDayCard({
+    super.key,
+    this.word = 'terima_kasih',
+  });
+
+  String _pretty(String raw) {
+    return raw
+        .split('_')
+        .map((w) => w.isEmpty ? w : w[0].toUpperCase() + w.substring(1))
+        .join(' ');
+  }
 
   @override
   Widget build(BuildContext context) {
+    final label = _pretty(word);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -31,80 +49,24 @@ class WordOfDayCard extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Video thumbnail placeholder
-                Container(
-                  height: 180,
-                  width: double.infinity,
-                  decoration: BoxDecoration(
-                    color: AppColors.darkSurface,
-                    borderRadius: BorderRadius.vertical(
-                      top: Radius.circular(AppRadius.xxl),
-                    ),
+                // Real BISINDO video preview (auto fallback ke placeholder).
+                ClipRRect(
+                  borderRadius: BorderRadius.vertical(
+                    top: Radius.circular(AppRadius.xxl),
                   ),
                   child: Stack(
                     children: [
-                      // Gradient overlay
-                      Container(
-                        decoration: BoxDecoration(
-                          borderRadius: BorderRadius.vertical(
-                            top: Radius.circular(AppRadius.xxl),
-                          ),
-                          gradient: LinearGradient(
-                            begin: Alignment.topCenter,
-                            end: Alignment.bottomCenter,
-                            colors: [
-                              Colors.transparent,
-                              Colors.black.withOpacity(0.4),
-                            ],
-                          ),
-                        ),
+                      BisindoVideoPreview(
+                        word: word,
+                        aspectRatio: 16 / 10,
                       ),
-                      // Centered play icon
-                      Center(
-                        child: Container(
-                          width: 56,
-                          height: 56,
-                          decoration: BoxDecoration(
-                            color: Colors.white.withOpacity(0.15),
-                            shape: BoxShape.circle,
-                            border: Border.all(
-                              color: Colors.white.withOpacity(0.3),
-                              width: 2,
-                            ),
-                          ),
-                          child: Icon(
-                            Icons.play_arrow_rounded,
-                            color: Colors.white,
-                            size: 30,
-                          ),
-                        ),
-                      ),
-                      // Duration badge
-                      Positioned(
-                        bottom: 12,
-                        right: 12,
-                        child: Container(
-                          padding: EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                          decoration: BoxDecoration(
-                            color: Colors.black.withOpacity(0.6),
-                            borderRadius: BorderRadius.circular(4),
-                          ),
-                          child: Text(
-                            '0:30',
-                            style: GoogleFonts.plusJakartaSans(
-                              fontSize: 11,
-                              fontWeight: FontWeight.w600,
-                              color: Colors.white,
-                            ),
-                          ),
-                        ),
-                      ),
-                      // Sign language icon hint
+                      // Sign language tag (top-left)
                       Positioned(
                         top: 12,
                         left: 12,
                         child: Container(
-                          padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                          padding: EdgeInsets.symmetric(
+                              horizontal: 8, vertical: 4),
                           decoration: BoxDecoration(
                             color: AppColors.primary.withOpacity(0.85),
                             borderRadius: BorderRadius.circular(6),
@@ -141,7 +103,7 @@ class WordOfDayCard extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        'Cara Mengucapkan "Terima Kasih"',
+                        'Cara Mengisyaratkan "$label"',
                         style: GoogleFonts.plusJakartaSans(
                           fontSize: 15,
                           fontWeight: FontWeight.w700,
@@ -150,7 +112,7 @@ class WordOfDayCard extends StatelessWidget {
                       ),
                       SizedBox(height: 4),
                       Text(
-                        'Pelajari gerakan isyarat dasar untuk ungkapan sehari-hari',
+                        'Pelajari gerakan isyarat dasar untuk komunikasi sehari-hari',
                         style: GoogleFonts.beVietnamPro(
                           fontSize: 13,
                           color: AppColors.textSecondary,

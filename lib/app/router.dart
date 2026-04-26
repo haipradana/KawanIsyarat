@@ -88,7 +88,33 @@ final routerProvider = Provider<GoRouter>((ref) {
       _slideRoute('/comm-hearing', CommHearingToDeafScreen()),
       _slideRoute('/learn', LearningHubScreen()),
       _slideRoute('/learn/kata', LearnKataPickerScreen()),
-      _slideRoute('/learn/kata/practice', LearnKataScreen()),
+      GoRoute(
+        path: '/learn/kata/practice',
+        pageBuilder: (context, state) {
+          final extra = state.extra;
+          String word = 'terima_kasih';
+          if (extra is Map && extra['word'] is String) {
+            word = extra['word'] as String;
+          }
+          return CustomTransitionPage(
+            key: state.pageKey,
+            child: LearnKataScreen(word: word),
+            transitionsBuilder: (context, animation, secondaryAnimation, child) {
+              final slideAnimation = Tween<Offset>(
+                begin: Offset(0, 0.05),
+                end: Offset.zero,
+              ).animate(CurvedAnimation(
+                parent: animation,
+                curve: Curves.easeOut,
+              ));
+              return SlideTransition(
+                position: slideAnimation,
+                child: FadeTransition(opacity: animation, child: child),
+              );
+            },
+          );
+        },
+      ),
       _slideRoute('/learn/alfabet', LearnAlfabetScreen()),
       _slideRoute('/learn/alfabet/sibi',
           LearnAlfabetScreen(initialMode: AlphabetMode.sibi)),
