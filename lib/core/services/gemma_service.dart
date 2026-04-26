@@ -105,11 +105,8 @@ Kalau status SALAH → tunjuk 1 perbedaan bentuk yang perlu diperbaiki + cara me
 Maks 2 kalimat. Bahasa Indonesia santai. Jangan pakai bullet, markdown, atau bold.
 ''';
 
-  /// Vision dinonaktifkan default karena memakan ~300MB extra RAM untuk
-  /// vision encoder weights + prefill peak. Pixel 6a sering crash dengan
-  /// system-wide memory pressure event saat path ini dipakai.
-  /// Bisa di-toggle via setter kalau user ingin coba.
-  static bool useVisionCoach = false;
+  /// Vision aktif default — kalau device OOM, otomatis fallback ke text-only.
+  static bool useVisionCoach = true;
 
   /// Referensi bentuk isyarat per huruf/kata.
   /// Dipakai sebagai ground-truth yang di-inject ke prompt — Gemma 4 tidak tahu
@@ -803,15 +800,31 @@ Jawab HANYA dengan teks transkripsi, tanpa penjelasan atau komentar.
             '${response.ramUsageMb.toStringAsFixed(0)}MB RAM');
         return cleaned;
       }
-      debugPrint('[GemmaService] reviewSignImage failed: ${response.error}');
-      return null;
+      debugPrint('[GemmaService] reviewSignImage failed: ${response.error} — fallback to text');
+      // Cleanup temp file
+      if (visionImagePath != imagePath) {
+        try { File(visionImagePath).deleteSync(); } catch (_) {}
+      }
+      // Fallback ke text-only saat vision gagal tanpa exception
+      return _reviewSignTextOnly(
+        targetLabel: targetLabel,
+        detectedLabel: detectedLabel,
+        mode: mode,
+        attemptCount: attemptCount,
+      );
     } catch (e) {
-      debugPrint('[GemmaService] reviewSignImage exception: $e');
+      debugPrint('[GemmaService] reviewSignImage exception (fallback to text): $e');
       // Cleanup on error too
       if (visionImagePath != imagePath) {
         try { File(visionImagePath).deleteSync(); } catch (_) {}
       }
-      return null;
+      // Fallback ke text-only coach saat vision gagal (OOM, error, dll)
+      return _reviewSignTextOnly(
+        targetLabel: targetLabel,
+        detectedLabel: detectedLabel,
+        mode: mode,
+        attemptCount: attemptCount,
+      );
     }
   }
 
