@@ -121,8 +121,13 @@ class _CommDeafToHearingScreenState
 
       await _initCamera();
 
-      // Kalau sebelumnya lagi capture / record, biarkan user tekan lagi — aman,
-      // karena state notifier detach saat recording dihentikan di tombol switch.
+      // Kalau session sebelumnya masih aktif (state.isCapturing), restart
+      // image stream pakai controller yang baru. Tanpa ini, stream nempel
+      // ke controller lama yang sudah di-dispose → model "mati" setelah flip.
+      final isCapturing = ref.read(deafToHearingProvider).isCapturing;
+      if (isCapturing && mounted) {
+        _startImageStream();
+      }
     } finally {
       if (mounted) setState(() => _switchingCamera = false);
     }
