@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 // Uncomment if switching back to LiteRT LM fallback:
 // import 'package:flutter_gemma/flutter_gemma.dart';
 import 'package:hive_flutter/hive_flutter.dart';
+import 'package:intl/date_symbol_data_local.dart';
 import 'app/router.dart';
 import 'app/theme.dart';
 import 'core/providers/ai_providers.dart';
@@ -20,6 +21,9 @@ void main() async {
   // Initialize Hive for local storage
   await Hive.initFlutter();
   await PersistenceService.instance.initialize();
+
+  // Initialize Indonesian locale data for DateFormat (history timestamps)
+  await initializeDateFormatting('id', null);
 
   // Set system UI overlay style
   SystemChrome.setSystemUIOverlayStyle(
