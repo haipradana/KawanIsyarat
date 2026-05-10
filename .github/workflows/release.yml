@@ -5,6 +5,9 @@ on:
     tags:
       - 'v*'   # trigger on: git tag v1.0.0 && git push origin v1.0.0
 
+permissions:
+  contents: write
+
 jobs:
   build:
     name: Build & Release APK
