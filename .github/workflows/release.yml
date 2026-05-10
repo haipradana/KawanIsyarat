@@ -30,19 +30,15 @@ jobs:
       - name: Get dependencies
         run: flutter pub get
 
-      - name: Build APK (split per ABI)
-        run: flutter build apk --release --split-per-abi
+      - name: Build APK (arm64-v8a)
+        run: flutter build apk --release
 
-      - name: Rename APKs with version tag
+      - name: Rename APK with version tag
         run: |
           VERSION=${GITHUB_REF_NAME}
           mkdir -p release_apks
-          cp build/app/outputs/apk/release/app-arm64-v8a-release.apk \
+          cp build/app/outputs/apk/release/app-release.apk \
              release_apks/KawanIsyarat-${VERSION}-arm64.apk
-          cp build/app/outputs/apk/release/app-armeabi-v7a-release.apk \
-             release_apks/KawanIsyarat-${VERSION}-armeabi.apk
-          cp build/app/outputs/apk/release/app-x86_64-release.apk \
-             release_apks/KawanIsyarat-${VERSION}-x86_64.apk
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
@@ -64,8 +60,6 @@ jobs:
             > Setelah itu aplikasi berjalan sepenuhnya offline.
           files: |
             release_apks/KawanIsyarat-${{ github.ref_name }}-arm64.apk
-            release_apks/KawanIsyarat-${{ github.ref_name }}-armeabi.apk
-            release_apks/KawanIsyarat-${{ github.ref_name }}-x86_64.apk
           draft: false
           prerelease: false
         env:
