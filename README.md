@@ -1,134 +1,146 @@
-# KawanIsyarat — Jembatan Komunikasi Inklusif 🤟
+# KawanIsyarat
 
-An offline-first, inclusive communication bridge between Deaf (Tuli) and Hearing (Mendengar) users in Indonesia. It uses sign language (BISINDO) with real-time gesture recognition + AI-powered sentence refinement. **ALL features run 100% offline — no internet required.**
+Two-way communication app between Deaf BISINDO users and hearing Indonesians. Runs fully offline after the initial model download — no internet, no server, no data leaving the device.
 
-## 📱 Screenshots
+Built for the [Gemma 4 Good Hackathon (Kaggle, 2026)](https://www.kaggle.com/competitions/google-gemma-4-good-hackathon).
 
-The app includes 5 main screens:
-1. **Persona Selection** – Choose between Deaf or Hearing user mode
-2. **Home Dashboard** – Quick access to Communication and Learning modes
-3. **Deaf → Hearing** – Sign language to text/speech translation
-4. **Hearing → Deaf** – Speech to text summarization for deaf users
-5. **Learning Mode** – Interactive BISINDO learning with AI feedback
+---
 
-## 🏗️ Project Structure
+## How it works
+
+**Deaf → Hearing**
+Camera → MediaPipe (pose + hand landmarks) → 1D CNN → BISINDO gloss → Gemma 4 → natural Indonesian sentence + contextual empathy tips → TTS
+
+**Hearing → Deaf**
+Mic → WAV → raw PCM → Gemma 4 audio encoder → transcript → Gemma 4 simplify → clean short text
+
+---
+
+## Features
+
+- **Sign-to-text** — real-time 1D CNN recognizes 16 BISINDO words from 30-frame sequences
+- **Speech-to-simplified-text** — Gemma 4 audio transcription + simplification for deaf readers
+- **Alphabet practice** — SIBI (24 letters, 1 hand) and BISINDO (26 letters, 2 hands) with Gemma 4 Vision feedback
+- **Vocabulary helper** — type any unfamiliar word, Gemma explains it in plain Indonesian
+- **Articulation practice** — hearing users practice pronunciation, Gemma evaluates via audio
+- **Emergency SOS** — one-tap TTS for six critical phrases ("I am deaf", "I need help", etc.)
+- **History** — session log with timestamps
+
+---
+
+## Tech Stack
+
+| Component | Detail |
+|---|---|
+| Framework | Flutter + Riverpod + GoRouter |
+| On-device LLM | Gemma 4 E2B INT4 via **Cactus SDK** (FFI, ~4 GB, ~1.9 GB RAM) |
+| Primary STT | Gemma 4 Audio Encoder — built into E2B, no separate model |
+| Fallback STT | Whisper Base INT8 via Cactus SDK (optional, ~200 MB) |
+| Gesture recognition | MediaPipe (33 pose + 21×2 hand landmarks) → 1D Causal Depthwise CNN |
+| Alphabet recognition | Dense classifier: SIBI 24 classes + BISINDO 26 classes (A–Z + NOTHING) |
+| Local storage | Hive |
+| TTS | flutter_tts |
+
+---
+
+## Running the App
+
+```bash
+flutter pub get
+
+# Run on device (replace with your device ID)
+flutter run -d YOUR_DEVICE_ID
+```
+
+First launch downloads the Gemma 4 model (~4 GB). After that, everything runs offline.
+
+**Do not use `flutter install`** — it will wipe app data including the downloaded model.
+
+---
+
+## Model Paths (on device)
+
+```
+/data/user/0/com.kawanisyarat.kawan_isyarat/app_flutter/cactus_models/
+  gemma-4-e2b-it-int4/     ← Gemma 4 E2B (primary, ~4 GB)
+  whisper-base-int8/        ← Whisper fallback (optional, ~200 MB)
+```
+
+---
+
+## Key Implementation Notes
+
+**Thinking mode must be disabled.** Cactus SDK defaults `enable_thinking_if_supported` to `true`, which causes 60–153 second responses. Passing `'enable_thinking_if_supported': false` in the options JSON brings this to 4–9 seconds.
+
+**Whisper prompt format.** Must end with `<|notimestamps|>` — without it, the model generates timestamp tokens that get filtered, producing empty output.
+
+**OOM guard for long audio.** PCM > 256 KB (~8s at 16kHz) triggers 2-tap decimation before sending to Gemma. Audio ≤ 8s is sent at full quality.
+
+**Gemma 4 Vision knowledge injection.** Gemma has no knowledge of BISINDO/SIBI hand shapes. Every vision coaching call injects a textual reference of the correct hand form for that letter/word.
+
+---
+
+## Project Structure
 
 ```
 lib/
-├── main.dart                          # App entry point
 ├── app/
-│   ├── router.dart                    # GoRouter configuration
-│   ├── theme.dart                     # Material theme with design tokens
-│   └── constants.dart                 # Colors, spacing, mock data
-├── features/
-│   ├── onboarding/
-│   │   ├── screens/persona_selection_screen.dart
-│   │   └── widgets/persona_card.dart
-│   ├── home/
-│   │   ├── screens/home_dashboard_screen.dart
-│   │   └── widgets/
-│   │       ├── mode_card.dart
-│   │       └── word_of_day_card.dart
-│   ├── communication/
-│   │   ├── screens/
-│   │   │   ├── comm_deaf_to_hearing_screen.dart
-│   │   │   └── comm_hearing_to_deaf_screen.dart
-│   │   └── widgets/
-│   │       ├── gloss_chip_row.dart
-│   │       ├── ai_sentence_card.dart
-│   │       ├── push_to_start_button.dart
-│   │       └── waveform_visualizer.dart
-│   ├── learning/
-│   │   ├── screens/learning_mode_screen.dart
-│   │   └── widgets/
-│   │       ├── reference_image_card.dart
-│   │       ├── live_camera_pip.dart
-│   │       ├── feedback_banner.dart
-│   │       └── star_rating.dart
-│   ├── history/
-│   │   └── screens/history_screen.dart
-│   └── settings/
-│       └── screens/settings_screen.dart
-├── shared/
-│   ├── widgets/
-│   │   ├── bottom_nav_bar.dart
-│   │   ├── offline_badge.dart
-│   │   └── kawan_app_bar.dart
-│   └── models/
-│       ├── user_persona.dart
-│       ├── gloss_result.dart
-│       └── conversation_entry.dart
-└── core/
-    ├── services/
-    │   ├── gesture_service.dart         ← STUB: emits mock gloss words
-    │   ├── gemma_service.dart           ← STUB: returns mock refined sentences
-    │   ├── stt_service.dart             ← STUB: returns mock transcriptions
-    │   └── tts_service.dart             ← Wraps flutter_tts
-    └── providers/
-        ├── persona_provider.dart
-        ├── communication_provider.dart
-        └── learning_provider.dart
+│   ├── router.dart              GoRouter — all routes
+│   ├── theme.dart               Material theme + design tokens
+│   └── constants.dart           Colors, spacing, static data
+├── core/
+│   ├── ffi/
+│   │   ├── cactus.dart          Cactus FFI bindings (do not edit)
+│   │   └── cactus_wrapper.dart  CactusModel + CactusTranscriber
+│   ├── services/
+│   │   ├── gemma_service.dart         Gemma 4: text, audio, vision, empathy
+│   │   ├── gesture_service.dart       1D CNN: BISINDO word recognition
+│   │   ├── mediapipe_service.dart     MediaPipe: pose + hand landmarks
+│   │   ├── sibi_alphabet_service.dart SIBI alphabet (24 classes, 1 hand)
+│   │   ├── bisindo_alphabet_service.dart BISINDO alphabet (26 classes, 2 hands)
+│   │   ├── model_manager.dart         Model download + path management
+│   │   ├── stt_service.dart           Whisper STT (fallback)
+│   │   ├── tts_service.dart           flutter_tts wrapper
+│   │   └── persistence_service.dart   Hive local storage
+│   └── providers/
+│       ├── ai_providers.dart          Gemma init + download state
+│       ├── communication_provider.dart DeafToHearingNotifier + HearingToDeafNotifier
+│       ├── learning_provider.dart     Learning hub state
+│       ├── learning_progress_provider.dart Per-module completion tracking
+│       ├── persona_provider.dart      User persona (Deaf / Hearing)
+│       └── auth_provider.dart         Simple onboarding auth state
+└── features/
+    ├── onboarding/     Landing, persona selection, AI init screen
+    ├── home/           Dashboard + word-of-day card
+    ├── communication/  Deaf↔Hearing screens + widgets
+    ├── learning/       Hub, kata, alfabet, idiom, artikulasi, kamus
+    ├── history/        Session history
+    ├── settings/       Model management, app settings
+    └── emergency/      SOS quick-sign screen
 ```
 
-## 🛠️ Tech Stack
+---
 
-| Component          | Technology            |
-|--------------------|-----------------------|
-| Framework          | Flutter (latest)      |
-| State Management   | Riverpod              |
-| Navigation         | GoRouter              |
-| Local Storage      | Hive                  |
-| Text-to-Speech     | flutter_tts           |
-| Animations         | flutter_animate       |
-| Typography         | Google Fonts          |
+## ML Models
 
-## 🎨 Design System
+### BISINDO Gesture (1D CNN)
+- Input: 30 frames × 100 floats (nose-centered, shoulder-normalized, w/ temporal derivatives)
+- 16 classes: TULI, SAYA, KAMU, NAMA, TOLONG, APA, TERIMA_KASIH, BAIK, SAKIT, LAPAR, HAUS, MINTA, PAGI, MALAM, SEKOLAH, NOISE
+- Evaluated with LOSO (Leave-One-Signer-Out): **86.2% test accuracy**
+- Training scripts: `ml/data_collector.py`
 
-- **Primary**: Deep Teal `#006D6D`
-- **Accent**: Warm Amber `#F5A623`
-- **Background**: Near White `#F9F9F7`
-- **Headlines**: Plus Jakarta Sans (bold)
-- **Body Text**: Be Vietnam Pro (regular)
-- **Border Radius**: 24px cards, 12px chips, 999px buttons
-- **Design Philosophy**: "Tactical Humanism" — warm, inclusive, no borders
+### BISINDO Alphabet (Dense classifier)
+- Input: 42 floats (21 hand landmarks × xy, bbox-normalized)
+- 26 classes A–Z + NOTHING
+- Training dataset: recorded with MediaPipe hand landmarker
 
-## 🚀 Getting Started
+### SIBI Alphabet (Dense classifier)
+- Input: 42 floats (1 hand, same format)
+- 24 classes (A–Z, skip J and Z — dynamic)
+- Training dataset: Kaggle SIBI 5280 images
 
-### Prerequisites
-- Flutter SDK >= 3.2.0
-- Android Studio / VS Code
-- Android device or emulator (SDK 21+)
+---
 
-### Running the App
+## License
 
-```bash
-# Get dependencies
-flutter pub get
-
-# Run the app
-flutter run
-
-# Build APK
-flutter build apk
-```
-
-## 📝 Stub Services
-
-The following services return mock data and serve as placeholders for future ML integration:
-
-- **GestureService**: Simulates MediaPipe gesture recognition, emits gloss words via stream
-- **GemmaService**: Simulates Gemma LLM inference for gloss→sentence refinement
-- **SttService**: Simulates Whisper STT transcription
-- **TtsService**: Real implementation using `flutter_tts` for Indonesian TTS
-
-## 🔮 Future Integration Points
-
-1. Replace `gesture_service.dart` with MediaPipe hand tracking
-2. Replace `gemma_service.dart` with Gemma 4 LiteRT on-device inference
-3. Replace `stt_service.dart` with Whisper on-device STT
-4. Replace TTS stub with Piper TTS for more natural Indonesian speech
-5. Add camera plugin integration for real-time video feed
-
-## 📄 License
-
-This project is licensed under the MIT License.
+MIT

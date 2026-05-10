@@ -5,19 +5,19 @@
 
 ## Motivation
 
-My younger sibling is deaf. They use BISINDO — Bahasa Isyarat Indonesia, Indonesia's native sign language used by approximately 2 million deaf Indonesians. Every time they needed to visit a doctor, attend a parent-teacher meeting, or handle anything at a government office, I had to come along as a human interpreter. Not because they couldn't communicate — they communicate beautifully in BISINDO. But because no tool existed to bridge the gap.
+My younger brother is deaf. He uses BISINDO — Bahasa Isyarat Indonesia, the sign language of Indonesia's deaf community. According to Kemenko PMK (2023), around 22.97 million Indonesians are deaf or hard of hearing. Every time he needed to visit a doctor, attend a meeting, or handle anything at a government office, I had to come along as a human interpreter. Not because he couldn't communicate — he communicates beautifully in BISINDO. But because no tool existed to bridge the gap.
 
 I spent weeks researching existing solutions. Google's interpreter tools focus on ASL. Hear Me, the most prominent Indonesian sign language app, offers a passive vocabulary library — but no live recognition, no two-way communication, no AI understanding. Zero AI apps existed for BISINDO.
 
 So I built KawanIsyarat.
 
-This is not a research demo or a proof-of-concept notebook. It is a real Android application that my sibling can install today and use to communicate with anyone — without needing me present.
+This is not a research demo or a proof-of-concept notebook. It is a real Android application that my brother can install today and use to communicate with anyone — without needing me present.
 
 ---
 
 ## The Problem
 
-The communication barrier between deaf and hearing people in Indonesia is a daily, exhausting reality for 2 million BISINDO users:
+The communication barrier between deaf and hearing people in Indonesia is a daily reality for millions. Indonesia has an estimated 22.97 million people with hearing disabilities (Kemenko PMK, 2023) — around 8.5% of the population:
 
 - **At hospitals**: Deaf patients must bring a hearing companion to interpret — losing privacy and independence in the most personal of situations.
 - **At schools and offices**: Critical information gets lost. Misunderstandings happen constantly.
@@ -30,7 +30,7 @@ The hearing world has not moved to meet the deaf halfway. KawanIsyarat is built 
 
 ## Solution Approach
 
-I want to especially thank my sibling for participating in testing and in the demo video. Working directly with someone who uses BISINDO daily provided invaluable insights into what an accessibility app must get right — not just what is technically impressive, but what is genuinely useful when you depend on it.
+I want to especially thank my brother for participating in testing and in the demo video. Working directly with someone who uses BISINDO daily provided invaluable insights into what an accessibility app must get right — not just what is technically impressive, but what is genuinely useful when you depend on it.
 
 My design philosophy was the same as the Gemma Vision winner from the Gemma 3n hackathon: **one singular focus, done deeply.** But BISINDO communication has two sides, so KawanIsyarat focuses deeply on one thing: **making two-way communication between deaf and hearing people effortless and dignified.**
 
@@ -136,7 +136,7 @@ KawanIsyarat
 
 KawanIsyarat targets four hackathon prize tracks simultaneously because it genuinely addresses all four:
 
-1. **Digital Equity & Inclusivity** — 2 million BISINDO users in Indonesia, zero dedicated AI tools before this.
+1. **Digital Equity & Inclusivity** — 22.97 million Indonesians with hearing disabilities (Kemenko PMK, 2023), zero dedicated AI tools for BISINDO before this.
 2. **Future of Education** — Sign Coach with AI vision feedback, vocabulary helper, alphabet/word learning for both deaf and hearing.
 3. **Cactus SDK Bonus Prize** — Gemma 4 E2B deployed on-device via Cactus custom inference engine.
 4. **Main Track** — Gemma 4 multimodal showcase: one model handling audio, vision, and text reasoning.
@@ -158,13 +158,13 @@ Today it is an Android app. The vision is an accessibility layer: a plugin for W
 | Vocabulary helper | ❌ | ❌ | ✅ Gemma 4 Text |
 | Empathy suggestions | ❌ | ❌ | ✅ Contextual tips |
 | Fully offline | ❌ | ❌ | ✅ |
-| Personal story | — | — | ✅ Developer's deaf sibling |
+| Personal story | — | — | ✅ Developer's deaf brother |
 
 ---
 
 ## Closing
 
-Google is building SignGemma for ASL. But 2 million deaf Indonesians cannot wait for a global product to localize.
+Google is building SignGemma for ASL. But 22.97 million deaf and hard-of-hearing Indonesians cannot wait for a global product to localize.
 
 KawanIsyarat is what that future looks like — for BISINDO, today, on a $300 Android phone, fully offline, built by someone who needs it in their own family.
 
