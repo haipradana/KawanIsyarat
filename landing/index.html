@@ -72,13 +72,14 @@
       max-width: 100%;
     }
 
-    /* i18n visibility */
-    [data-lang-en] {
-      display: none;
+    /* i18n visibility — pakai html:not() supaya specificity (0-2-1) menang
+       atas class selector apapun (0-1-0) seperti .eyebrow, .label, dll. */
+    html:not([lang="en"]) [data-lang-en] {
+      display: none !important;
     }
 
     html[lang="en"] [data-lang-id] {
-      display: none;
+      display: none !important;
     }
 
     html[lang="en"] [data-lang-en] {
