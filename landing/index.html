@@ -303,14 +303,14 @@
 
     /* HERO */
     .hero {
-      padding: 48px 0 100px;
+      padding: 40px 0 100px;
     }
 
     .hero-grid {
       display: grid;
       grid-template-columns: 1.1fr 0.9fr;
       gap: 80px;
-      align-items: center;
+      align-items: start;
     }
 
     @media (max-width: 900px) {
@@ -379,13 +379,14 @@
       display: flex;
       justify-content: center;
       align-items: center;
-      padding: 0 20px 60px;
+      padding: 35px 20px 60px;
     }
 
     .card-stack {
       position: relative;
       width: 260px;
-      height: 548px; /* 260 * (3415/1625) */
+      height: 548px;
+      /* 260 * (3415/1625) */
     }
 
     .card-stack .card {
@@ -396,9 +397,9 @@
       border-radius: 28px;
       overflow: hidden;
       box-shadow:
-        0 2px 8px rgba(0,0,0,0.06),
-        0 16px 40px rgba(26,28,27,0.14),
-        0 40px 80px rgba(26,28,27,0.08);
+        0 2px 8px rgba(0, 0, 0, 0.06),
+        0 16px 40px rgba(26, 28, 27, 0.14),
+        0 40px 80px rgba(26, 28, 27, 0.08);
       will-change: transform, opacity;
       transition: transform 0.5s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.5s ease;
       cursor: pointer;
@@ -1213,12 +1214,18 @@
         <div class="card-stack-wrap reveal">
           <div>
             <div class="card-stack" id="cardStack">
-              <div class="card" data-index="0"><img src="images/layout0.png" alt="KawanIsyarat screen 1" loading="lazy" /></div>
-              <div class="card" data-index="1"><img src="images/layout1.png" alt="KawanIsyarat screen 2" loading="lazy" /></div>
-              <div class="card" data-index="2"><img src="images/layout2.png" alt="KawanIsyarat screen 3" loading="lazy" /></div>
-              <div class="card" data-index="3"><img src="images/layout3.png" alt="KawanIsyarat screen 4" loading="lazy" /></div>
-              <div class="card" data-index="4"><img src="images/layout4.png" alt="KawanIsyarat screen 5" loading="lazy" /></div>
-              <div class="card" data-index="5"><img src="images/layout5.png" alt="KawanIsyarat screen 6" loading="lazy" /></div>
+              <div class="card" data-index="0"><img src="images/layout0.png" alt="KawanIsyarat screen 1"
+                  loading="lazy" /></div>
+              <div class="card" data-index="1"><img src="images/layout1.png" alt="KawanIsyarat screen 2"
+                  loading="lazy" /></div>
+              <div class="card" data-index="2"><img src="images/layout2.png" alt="KawanIsyarat screen 3"
+                  loading="lazy" /></div>
+              <div class="card" data-index="3"><img src="images/layout3.png" alt="KawanIsyarat screen 4"
+                  loading="lazy" /></div>
+              <div class="card" data-index="4"><img src="images/layout4.png" alt="KawanIsyarat screen 5"
+                  loading="lazy" /></div>
+              <div class="card" data-index="5"><img src="images/layout5.png" alt="KawanIsyarat screen 6"
+                  loading="lazy" /></div>
             </div>
             <div class="card-dots" id="cardDots">
               <span class="active"></span>
@@ -1324,10 +1331,12 @@
           See the app <span class="em-serif">in action</span>.
         </h2>
         <p class="video-sub" data-lang-id>
-          Video singkat yang menunjukkan percakapan dua arah antara adik saya dan saya, berjalan sepenuhnya di Pixel 6a tanpa koneksi internet.
+          Video singkat yang menunjukkan percakapan dua arah antara adik saya dan saya, berjalan sepenuhnya di Pixel 6a
+          tanpa koneksi internet.
         </p>
         <p class="video-sub block" data-lang-en>
-          A short film showing a two-way conversation between my sister and me, running entirely on a Pixel 6a with no internet connection.
+          A short film showing a two-way conversation between my sister and me, running entirely on a Pixel 6a with no
+          internet connection.
         </p>
       </div>
 
@@ -1483,7 +1492,8 @@
           </svg>
           <h3 data-lang-id>Komunikasi langsung, dua arah.</h3>
           <h3 data-lang-en class="block">Direct, two-way communication.</h3>
-          <p data-lang-id>Teman Tuli dan orang dengar bisa berbicara satu sama lain tanpa perantara, dengan waktu tunggu respons
+          <p data-lang-id>Teman Tuli dan orang dengar bisa berbicara satu sama lain tanpa perantara, dengan waktu tunggu
+            respons
             sekitar empat sampai sembilan detik tiap giliran.</p>
           <p data-lang-en class="block">Deaf and hearing people can talk to one another without a go-between, with each
             turn taking about four to nine seconds.</p>
@@ -1859,12 +1869,12 @@
 
       // Stack visual positions: [front → back]
       const positions = [
-        { y: 0,  rot: 0,    scale: 1.00, z: 6 },
-        { y: 10, rot: 2.5,  scale: 0.96, z: 5 },
-        { y: 18, rot: -2,   scale: 0.93, z: 4 },
-        { y: 26, rot: 3.5,  scale: 0.90, z: 3 },
-        { y: 34, rot: -3,   scale: 0.87, z: 2 },
-        { y: 42, rot: 4,    scale: 0.84, z: 1 },
+        { y: 0, rot: 0, scale: 1.00, z: 6 },
+        { y: 10, rot: 2.5, scale: 0.96, z: 5 },
+        { y: 18, rot: -2, scale: 0.93, z: 4 },
+        { y: 26, rot: 3.5, scale: 0.90, z: 3 },
+        { y: 34, rot: -3, scale: 0.87, z: 2 },
+        { y: 42, rot: 4, scale: 0.84, z: 1 },
       ];
 
       // card order: cards[0] = current front
@@ -1878,7 +1888,7 @@
         } else {
           card.style.transition = 'transform 0.5s cubic-bezier(0.4,0,0.2,1), opacity 0.4s ease';
         }
-        card.style.zIndex  = pos.z;
+        card.style.zIndex = pos.z;
         card.style.transform = `translateX(-50%) translateY(${pos.y}px) rotate(${pos.rot}deg) scale(${pos.scale})`;
         card.style.opacity = '1';
       }
