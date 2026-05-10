@@ -374,6 +374,32 @@
       color: var(--teal);
     }
 
+    .nav-links-icon {
+      color: var(--muted);
+      transition: color 0.2s;
+      display: flex;
+      align-items: center;
+    }
+
+    .nav-links-icon:hover {
+      color: var(--ink);
+    }
+
+    .link-github {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--ink-soft);
+      font-weight: 500;
+      font-size: 15px;
+      transition: color 0.2s, transform 0.2s;
+    }
+
+    .link-github:hover {
+      color: var(--ink);
+      transform: translateY(-1px);
+    }
+
     /* CARD STACK */
     .card-stack-wrap {
       display: flex;
@@ -1162,6 +1188,15 @@
           <button type="button" data-set-lang="id" class="active">ID</button>
           <button type="button" data-set-lang="en">EN</button>
         </div>
+        <a href="https://github.com/haipradana/KawanIsyarat" target="_blank" class="nav-links-icon hide-mobile"
+          aria-label="GitHub">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+            stroke-linecap="round" stroke-linejoin="round">
+            <path
+              d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22">
+            </path>
+          </svg>
+        </a>
         <a href="#" class="nav-cta" data-lang-id>Unduh</a><a href="#" class="nav-cta" data-lang-en>Download</a>
       </div>
     </div>
@@ -1194,12 +1229,22 @@
             directly. Everything runs on your phone, with no internet connection and no data ever leaving the device.
           </p>
           <div class="hero-cta">
-            <a href="#" class="btn-primary">
+            <a href="https://github.com/haipradana/KawanIsyarat/releases/download/v1.0.0/KawanIsyarat-v1.0.0-arm64.apk"
+              class="btn-primary">
               <span data-lang-id>Unduh untuk Android</span><span data-lang-en>Download for Android</span>
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
                 stroke-linecap="round" stroke-linejoin="round">
                 <path d="M12 5v14M19 12l-7 7-7-7" />
               </svg>
+            </a>
+            <a href="https://github.com/haipradana/KawanIsyarat" target="_blank" class="link-github">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                stroke-linecap="round" stroke-linejoin="round">
+                <path
+                  d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22">
+                </path>
+              </svg>
+              <span>GitHub</span>
             </a>
             <a href="#cara-kerja" class="link-arrow">
               <span data-lang-id>Pelajari cara kerjanya</span><span data-lang-en>See how it works</span>
@@ -1792,12 +1837,22 @@
       <p data-lang-id>Unduh aplikasinya, cobalah sendiri, atau bagikan kepada teman yang mungkin membutuhkannya.</p>
       <p data-lang-en class="block">Download the app, try it yourself, or share it with a friend who might need it.</p>
       <div class="hero-cta">
-        <a href="#" class="btn-primary">
+        <a href="https://github.com/haipradana/KawanIsyarat/releases/download/v1.0.0/KawanIsyarat-v1.0.0-arm64.apk"
+          class="btn-primary">
           <span data-lang-id>Unduh untuk Android</span><span data-lang-en>Download for Android</span>
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
             stroke-linecap="round" stroke-linejoin="round">
             <path d="M12 5v14M19 12l-7 7-7-7" />
           </svg>
+        </a>
+        <a href="https://github.com/haipradana/KawanIsyarat" target="_blank" class="link-github">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+            stroke-linecap="round" stroke-linejoin="round">
+            <path
+              d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22">
+            </path>
+          </svg>
+          <span>GitHub</span>
         </a>
         <a href="mailto:pradanayahyaabdillah@mail.ugm.ac.id" class="link-arrow">
           <span data-lang-id>Hubungi pengembang</span><span data-lang-en>Contact the developer</span>
