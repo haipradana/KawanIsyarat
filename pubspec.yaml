@@ -2,7 +2,7 @@ name: kawan_isyarat
 description: KawanIsyarat — Jembatan Komunikasi Inklusif. An offline-first communication bridge between Deaf and Hearing users in Indonesia using BISINDO sign language.
 publish_to: 'none'
 
-version: 1.0.0+1
+version: 1.0.0+4
 
 environment:
   sdk: '>=3.2.0 <4.0.0'

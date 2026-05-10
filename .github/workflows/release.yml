@@ -1,0 +1,72 @@
+name: Release APK
+
+on:
+  push:
+    tags:
+      - 'v*'   # trigger on: git tag v1.0.0 && git push origin v1.0.0
+
+jobs:
+  build:
+    name: Build & Release APK
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: '17'
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.32.0'
+          channel: 'stable'
+          cache: true
+
+      - name: Get dependencies
+        run: flutter pub get
+
+      - name: Build APK (split per ABI)
+        run: flutter build apk --release --split-per-abi
+
+      - name: Rename APKs with version tag
+        run: |
+          VERSION=${GITHUB_REF_NAME}
+          mkdir -p release_apks
+          cp build/app/outputs/apk/release/app-arm64-v8a-release.apk \
+             release_apks/KawanIsyarat-${VERSION}-arm64.apk
+          cp build/app/outputs/apk/release/app-armeabi-v7a-release.apk \
+             release_apks/KawanIsyarat-${VERSION}-armeabi.apk
+          cp build/app/outputs/apk/release/app-x86_64-release.apk \
+             release_apks/KawanIsyarat-${VERSION}-x86_64.apk
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: "KawanIsyarat ${{ github.ref_name }}"
+          body: |
+            ## KawanIsyarat ${{ github.ref_name }}
+
+            Aplikasi Android untuk komunikasi dua arah antara pengguna BISINDO dan orang dengar.
+            Didukung Gemma 4 multimodal via Cactus SDK — berjalan **fully offline** setelah download model pertama (~4GB).
+
+            ### Download
+            - **arm64-v8a** — Pixel 6a, flagship Android 2019+, **recommended**
+            - **armeabi-v7a** — perangkat Android lama (32-bit)
+            - **x86_64** — emulator
+
+            ### Catatan
+            > Model Gemma 4 (~4GB) diunduh otomatis saat pertama buka aplikasi.
+            > Setelah itu aplikasi berjalan sepenuhnya offline.
+          files: |
+            release_apks/KawanIsyarat-${{ github.ref_name }}-arm64.apk
+            release_apks/KawanIsyarat-${{ github.ref_name }}-armeabi.apk
+            release_apks/KawanIsyarat-${{ github.ref_name }}-x86_64.apk
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

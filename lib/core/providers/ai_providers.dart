@@ -64,7 +64,6 @@ class AIInitNotifier extends StateNotifier<AIInitState> {
 
   final _modelManager = ModelManager();
   final _gemmaService = GemmaService();
-  final _sttService = SttService();
 
   /// Initialize AI models.
   /// Downloads Gemma 4 (required), then loads into memory.
