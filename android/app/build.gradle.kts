@@ -40,9 +40,13 @@ android {
 
     buildTypes {
         release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
+            // Signing with debug keys for now — replace with proper keystore before Play Store.
             signingConfig = signingConfigs.getByName("debug")
+            // ProGuard / R8 keep rules (required for TFLite GPU delegate + MediaPipe)
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro"
+            )
         }
     }
 }
