@@ -303,7 +303,7 @@
 
     /* HERO */
     .hero {
-      padding: 100px 0 140px;
+      padding: 48px 0 100px;
     }
 
     .hero-grid {
@@ -374,167 +374,63 @@
       color: var(--teal);
     }
 
-    /* PHONE MOCKUP */
-    .phone-stage {
-      position: relative;
+    /* CARD STACK */
+    .card-stack-wrap {
       display: flex;
       justify-content: center;
       align-items: center;
-      padding: 20px;
+      padding: 0 20px 60px;
     }
 
-    .phone-stage::before {
-      content: '';
-      position: absolute;
-      width: 85%;
-      height: 85%;
-      top: 8%;
-      left: 7.5%;
-      background: var(--teal-soft);
-      border-radius: 40% 60% 55% 45% / 45% 55% 45% 55%;
-      z-index: 0;
-      opacity: 0.8;
-    }
-
-    .phone {
+    .card-stack {
       position: relative;
-      z-index: 1;
-      width: 270px;
-      height: 540px;
-      background: var(--cream);
-      border: 1.5px solid var(--border);
-      border-radius: 42px;
-      padding: 16px 14px;
-      display: flex;
-      flex-direction: column;
-      gap: 10px;
+      width: 260px;
+      height: 548px; /* 260 * (3415/1625) */
+    }
+
+    .card-stack .card {
+      position: absolute;
+      top: 0;
+      left: 50%;
+      width: 260px;
+      border-radius: 28px;
+      overflow: hidden;
       box-shadow:
-        0 1px 3px rgba(0, 0, 0, 0.03),
-        0 12px 32px rgba(26, 28, 27, 0.08),
-        0 40px 64px rgba(26, 28, 27, 0.06);
+        0 2px 8px rgba(0,0,0,0.06),
+        0 16px 40px rgba(26,28,27,0.14),
+        0 40px 80px rgba(26,28,27,0.08);
+      will-change: transform, opacity;
+      transition: transform 0.5s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.5s ease;
+      cursor: pointer;
+      user-select: none;
     }
 
-    .phone-header {
+    .card-stack .card img {
+      width: 100%;
+      display: block;
+      pointer-events: none;
+    }
+
+    /* Progress dots */
+    .card-dots {
       display: flex;
-      align-items: center;
-      gap: 10px;
-      padding: 10px 8px 14px;
-      border-bottom: 1px solid var(--border-soft);
+      justify-content: center;
+      gap: 6px;
+      margin-top: 28px;
     }
 
-    .phone-header img {
-      width: 28px;
-      height: 28px;
-      border-radius: 6px;
-    }
-
-    .ph-title {
-      font-family: var(--sans);
-      font-size: 13px;
-      font-weight: 600;
-      color: var(--ink);
-    }
-
-    .ph-sub {
-      font-size: 11px;
-      color: var(--muted);
-    }
-
-    .ph-dot {
+    .card-dots span {
       width: 6px;
       height: 6px;
       border-radius: 50%;
-      background: #2A9D5F;
-      display: inline-block;
-      margin-right: 4px;
-      vertical-align: middle;
+      background: var(--border);
+      transition: background 0.3s, width 0.3s;
     }
 
-    .bubble-label {
-      font-family: var(--mono);
-      font-size: 10px;
-      color: var(--muted);
-      letter-spacing: 0.06em;
-      text-transform: uppercase;
-      margin-top: 4px;
-    }
-
-    .bubble-label.right {
-      text-align: right;
-    }
-
-    .bubble {
-      padding: 10px 14px;
-      font-size: 12.5px;
-      line-height: 1.45;
-      max-width: 82%;
-    }
-
-    .bubble.sign {
-      background: var(--teal-soft);
-      border-radius: 14px 14px 14px 4px;
-      color: var(--ink);
-      align-self: flex-start;
-      font-family: var(--mono);
-      font-size: 11px;
-      letter-spacing: 0.05em;
-    }
-
-    .bubble.translated {
-      background: var(--ink);
-      color: var(--cream);
-      border-radius: 14px 14px 4px 14px;
-      align-self: flex-end;
-    }
-
-    .bubble.tip {
-      background: transparent;
-      border: 1px solid var(--border);
-      border-radius: 14px;
-      color: var(--ink-soft);
-      align-self: flex-start;
-      font-size: 11.5px;
-    }
-
-    .bubble.tip .label {
-      font-family: var(--mono);
-      font-size: 9px;
-      color: var(--teal);
-      letter-spacing: 0.1em;
-      text-transform: uppercase;
-      margin-bottom: 4px;
-      display: block;
-    }
-
-    .phone-spacer {
-      flex: 1;
-    }
-
-    .phone-input {
-      background: var(--paper);
-      border: 1px solid var(--border);
-      border-radius: 24px;
-      padding: 10px 12px;
-      display: flex;
-      align-items: center;
-      gap: 10px;
-    }
-
-    .phone-input .placeholder {
-      flex: 1;
-      font-size: 12px;
-      color: var(--dim);
-    }
-
-    .phone-input .mic {
-      width: 28px;
-      height: 28px;
-      border-radius: 50%;
+    .card-dots span.active {
       background: var(--teal);
-      color: white;
-      display: flex;
-      align-items: center;
-      justify-content: center;
+      width: 20px;
+      border-radius: 3px;
     }
 
     /* NARRATIVE */
@@ -1314,47 +1210,19 @@
           </div>
         </div>
 
-        <div class="phone-stage reveal">
-          <div class="phone">
-            <div class="phone-header">
-              <img src="logo.png" alt="" />
-              <div>
-                <div class="ph-title">KawanIsyarat</div>
-                <div class="ph-sub"><span class="ph-dot"></span><span data-lang-id>Aktif · Offline</span><span
-                    data-lang-en>Active · Offline</span></div>
-              </div>
+        <div class="card-stack-wrap reveal">
+          <div>
+            <div class="card-stack" id="cardStack">
+              <div class="card" data-index="0"><img src="images/layout0.png" alt="KawanIsyarat screen 1" loading="lazy" /></div>
+              <div class="card" data-index="1"><img src="images/layout1.png" alt="KawanIsyarat screen 2" loading="lazy" /></div>
+              <div class="card" data-index="2"><img src="images/layout2.png" alt="KawanIsyarat screen 3" loading="lazy" /></div>
+              <div class="card" data-index="3"><img src="images/layout3.png" alt="KawanIsyarat screen 4" loading="lazy" /></div>
+              <div class="card" data-index="4"><img src="images/layout4.png" alt="KawanIsyarat screen 5" loading="lazy" /></div>
+              <div class="card" data-index="5"><img src="images/layout5.png" alt="KawanIsyarat screen 6" loading="lazy" /></div>
             </div>
-
-            <div class="bubble-label"><span data-lang-id>Isyarat terdeteksi</span><span data-lang-en>Signs
-                detected</span></div>
-            <div class="bubble sign">HALO · NAMA · SAYA · ANDI · SENANG · KENAL</div>
-
-            <div class="bubble-label right"><span data-lang-id>Terjemahan</span><span data-lang-en>Translation</span>
-            </div>
-            <div class="bubble translated"><span data-lang-id>Halo, nama saya Andi. Senang berkenalan dengan
-                kamu.</span><span data-lang-en>Hi, my name is Andi. Nice to meet you.</span></div>
-
-            <div class="bubble tip">
-              <span class="label"><span data-lang-id>Saran untuk Anda</span><span data-lang-en>A suggestion for
-                  you</span></span>
-              <span data-lang-id>Hadapkan wajah saat menjawab dan bicara dengan kecepatan biasa. Senyum kecil sudah
-                cukup membuat percakapan terasa hangat.</span>
-              <span data-lang-en>Face him when you reply and speak at your normal pace. A small smile is enough to keep
-                the moment warm.</span>
-            </div>
-
-            <div class="phone-spacer"></div>
-
-            <div class="phone-input">
-              <span class="placeholder"><span data-lang-id>Ketik atau rekam…</span><span data-lang-en>Type or
-                  record…</span></span>
-              <div class="mic">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-                  stroke-linecap="round" stroke-linejoin="round">
-                  <path d="M12 2a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z" />
-                  <path d="M19 10v1a7 7 0 0 1-14 0v-1M12 18v4M8 22h8" />
-                </svg>
-              </div>
+            <div class="card-dots" id="cardDots">
+              <span class="active"></span>
+              <span></span><span></span><span></span><span></span><span></span>
             </div>
           </div>
         </div>
@@ -1979,6 +1847,92 @@
         ? 'KawanIsyarat · Communication that is equal, for everyone.'
         : 'KawanIsyarat · Komunikasi yang setara, untuk siapa saja.';
     }
+  </script>
+
+  <!-- CARD STACK ANIMATION -->
+  <script>
+    (function () {
+      const stack = document.getElementById('cardStack');
+      if (!stack) return;
+
+      const dots = document.querySelectorAll('#cardDots span');
+
+      // Stack visual positions: [front → back]
+      const positions = [
+        { y: 0,  rot: 0,    scale: 1.00, z: 6 },
+        { y: 10, rot: 2.5,  scale: 0.96, z: 5 },
+        { y: 18, rot: -2,   scale: 0.93, z: 4 },
+        { y: 26, rot: 3.5,  scale: 0.90, z: 3 },
+        { y: 34, rot: -3,   scale: 0.87, z: 2 },
+        { y: 42, rot: 4,    scale: 0.84, z: 1 },
+      ];
+
+      // card order: cards[0] = current front
+      let cards = Array.from(stack.querySelectorAll('.card'));
+      let frontIndex = 0; // which layout image is at front (for dots)
+      let isAnimating = false;
+
+      function applyPos(card, pos, withTransition) {
+        if (!withTransition) {
+          card.style.transition = 'none';
+        } else {
+          card.style.transition = 'transform 0.5s cubic-bezier(0.4,0,0.2,1), opacity 0.4s ease';
+        }
+        card.style.zIndex  = pos.z;
+        card.style.transform = `translateX(-50%) translateY(${pos.y}px) rotate(${pos.rot}deg) scale(${pos.scale})`;
+        card.style.opacity = '1';
+      }
+
+      // Init without animation
+      cards.forEach((card, i) => applyPos(card, positions[i], false));
+
+      function updateDots() {
+        dots.forEach((d, i) => d.classList.toggle('active', i === frontIndex));
+      }
+      updateDots();
+
+      function advance() {
+        if (isAnimating) return;
+        isAnimating = true;
+
+        const front = cards[0];
+
+        // 1. Fly front card out (up + slight tilt + fade)
+        front.style.transition = 'transform 0.45s cubic-bezier(0.4,0,1,1), opacity 0.35s ease';
+        front.style.transform = 'translateX(-50%) translateY(-110%) rotate(-6deg) scale(0.88)';
+        front.style.opacity = '0';
+
+        setTimeout(() => {
+          // 2. Instantly reset to back position (no transition)
+          applyPos(front, positions[5], false);
+          front.style.opacity = '0';
+
+          // 3. Rotate array: move front to back
+          cards.push(cards.shift());
+          frontIndex = parseInt(cards[0].dataset.index);
+          updateDots();
+
+          // 4. Force reflow, then animate all into new positions
+          void stack.offsetWidth;
+          setTimeout(() => {
+            front.style.transition = 'opacity 0.3s ease';
+            front.style.opacity = '1';
+            cards.forEach((card, i) => applyPos(card, positions[i], true));
+            setTimeout(() => { isAnimating = false; }, 520);
+          }, 30);
+        }, 450);
+      }
+
+      // Click front card to advance manually
+      stack.addEventListener('click', () => advance());
+
+      // Auto-advance every 3.5s
+      let timer = setInterval(advance, 3500);
+
+      // Pause on hover
+      stack.addEventListener('mouseenter', () => clearInterval(timer));
+      stack.addEventListener('mouseleave', () => { timer = setInterval(advance, 3500); });
+    })();
   </script>
 
 </body>
