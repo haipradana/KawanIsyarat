@@ -1296,6 +1296,51 @@
       }
     }
 
+    /* BACK TO TOP */
+    .back-to-top {
+      position: fixed;
+      bottom: 32px;
+      right: 32px;
+      width: 48px;
+      height: 48px;
+      background: var(--paper);
+      color: var(--ink);
+      border: 1px solid var(--border);
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      z-index: 100;
+      opacity: 0;
+      visibility: hidden;
+      transform: translateY(20px);
+      transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+    }
+
+    .back-to-top.visible {
+      opacity: 1;
+      visibility: visible;
+      transform: translateY(0);
+    }
+
+    .back-to-top:hover {
+      background: var(--ink);
+      color: var(--cream);
+      border-color: var(--ink);
+      transform: translateY(-4px);
+    }
+
+    @media (max-width: 720px) {
+      .back-to-top {
+        bottom: 24px;
+        right: 20px;
+        width: 42px;
+        height: 42px;
+      }
+    }
+
     /* ANIMATIONS */
     .reveal {
       opacity: 0;
@@ -2207,6 +2252,28 @@
       stack.addEventListener('mouseenter', () => clearInterval(timer));
       stack.addEventListener('mouseleave', () => { timer = setInterval(advance, 3500); });
     })();
+  </script>
+
+  <!-- BACK TO TOP -->
+  <button type="button" class="back-to-top" id="backToTop" aria-label="Back to top">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
+      stroke-linecap="round" stroke-linejoin="round">
+      <path d="M18 15l-6-6-6 6" />
+    </svg>
+  </button>
+
+  <script>
+    const btt = document.getElementById('backToTop');
+    window.addEventListener('scroll', () => {
+      if (window.scrollY > 400) {
+        btt.classList.add('visible');
+      } else {
+        btt.classList.remove('visible');
+      }
+    });
+    btt.addEventListener('click', () => {
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    });
   </script>
 
 </body>
