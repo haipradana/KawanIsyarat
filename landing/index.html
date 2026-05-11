@@ -319,6 +319,7 @@
       align-items: center;
       justify-content: center;
       gap: 32px;
+      padding-top: 72px;
       opacity: 0;
       transition: opacity 0.25s ease;
       pointer-events: none;
@@ -348,6 +349,17 @@
 
     .mobile-menu .lang-toggle {
       margin-top: 8px;
+    }
+
+    .mobile-menu-close {
+      position: absolute;
+      top: 20px;
+      right: 20px;
+      background: none;
+      border: none;
+      cursor: pointer;
+      color: var(--ink);
+      padding: 8px;
     }
 
     @media (max-width: 720px) {
@@ -1326,6 +1338,9 @@
 
   <!-- Mobile menu overlay -->
   <div class="mobile-menu" id="mobileMenu">
+    <button class="mobile-menu-close" aria-label="Close menu">
+      <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="6" y1="6" x2="18" y2="18"/><line x1="6" y1="18" x2="18" y2="6"/></svg>
+    </button>
     <a href="#video" data-lang-id data-mobile-link>Demo</a><a href="#video" data-lang-en data-mobile-link>Demo</a>
     <a href="#cara-kerja" data-lang-id data-mobile-link>Cara kerja</a><a href="#cara-kerja" data-lang-en data-mobile-link>How it works</a>
     <a href="#fitur" data-lang-id data-mobile-link>Fitur</a><a href="#fitur" data-lang-en data-mobile-link>Features</a>
@@ -2071,6 +2086,14 @@
         document.body.style.overflow = '';
         hamburger.innerHTML = '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="4" y1="7" x2="20" y2="7"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="17" x2="20" y2="17"/></svg>';
       });
+    });
+
+    // Close button inside mobile menu
+    document.querySelector('.mobile-menu-close').addEventListener('click', () => {
+      mobileMenu.classList.remove('open');
+      hamburger.setAttribute('aria-expanded', 'false');
+      document.body.style.overflow = '';
+      hamburger.innerHTML = '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="4" y1="7" x2="20" y2="7"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="17" x2="20" y2="17"/></svg>';
     });
   </script>
 
