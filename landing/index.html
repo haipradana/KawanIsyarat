@@ -1223,11 +1223,29 @@
       }
 
       .hero {
-        padding: 24px 0 60px;
+        padding: 56px 0 64px;
       }
 
       .hero h1 {
-        font-size: clamp(36px, 9vw, 44px);
+        font-size: clamp(34px, 9vw, 42px);
+        line-height: 1.2;
+      }
+
+      .hero h1 br {
+        display: none;
+      }
+
+      .hero-cta {
+        display: grid;
+        grid-template-columns: repeat(2, auto);
+        justify-content: start;
+        align-items: center;
+        gap: 20px 32px;
+      }
+
+      .hero-cta .btn-primary {
+        grid-column: span 2;
+        justify-self: start;
       }
 
       .lead {
@@ -1236,6 +1254,14 @@
 
       .closing {
         padding: 80px 0;
+      }
+
+      .closing .hero-cta {
+        justify-content: center;
+      }
+
+      .closing .hero-cta .btn-primary {
+        justify-self: center;
       }
 
       .narrative {
