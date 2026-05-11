@@ -291,13 +291,76 @@
       color: var(--ink);
     }
 
+    /* Hamburger button */
+    .nav-hamburger {
+      display: none;
+      background: none;
+      border: none;
+      cursor: pointer;
+      padding: 8px;
+      color: var(--ink);
+      z-index: 61;
+    }
+
+    .nav-hamburger svg {
+      display: block;
+    }
+
+    /* Mobile menu overlay */
+    .mobile-menu {
+      display: none;
+      position: fixed;
+      inset: 0;
+      z-index: 55;
+      background: rgba(250, 250, 247, 0.97);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 32px;
+      opacity: 0;
+      transition: opacity 0.25s ease;
+      pointer-events: none;
+    }
+
+    .mobile-menu.open {
+      display: flex;
+      opacity: 1;
+      pointer-events: auto;
+    }
+
+    .mobile-menu a {
+      font-size: 20px;
+      font-weight: 500;
+      color: var(--ink-soft);
+      transition: color 0.2s;
+    }
+
+    .mobile-menu a:hover {
+      color: var(--teal);
+    }
+
+    .mobile-menu .nav-cta {
+      font-size: 16px;
+      padding: 14px 32px;
+    }
+
+    .mobile-menu .lang-toggle {
+      margin-top: 8px;
+    }
+
     @media (max-width: 720px) {
-      .nav-links .hide-mobile {
+      .nav-links {
         display: none;
       }
 
-      .nav-links {
-        gap: 14px;
+      .nav-hamburger {
+        display: block;
+      }
+
+      .nav-inner {
+        padding: 16px 20px;
       }
     }
 
@@ -1141,6 +1204,60 @@
       color: var(--teal);
     }
 
+    /* MOBILE FIXES */
+    @media (max-width: 720px) {
+      .container, .container-narrow {
+        padding: 0 20px;
+      }
+
+      .hero {
+        padding: 24px 0 60px;
+      }
+
+      .hero h1 {
+        font-size: clamp(36px, 9vw, 44px);
+      }
+
+      .lead {
+        font-size: 17px;
+      }
+
+      .closing {
+        padding: 80px 0;
+      }
+
+      .narrative {
+        padding: 64px 0;
+      }
+
+      .narrative .inner {
+        padding: 0 20px;
+      }
+
+      .pullquote {
+        font-size: clamp(22px, 5.5vw, 28px);
+      }
+
+      .card-stack-wrap {
+        padding: 20px 10px 40px;
+      }
+
+      .wall-illo {
+        padding: 24px;
+      }
+
+      .wall-diagram {
+        gap: 12px;
+      }
+
+      .footer-inner {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 16px;
+        padding: 0 20px;
+      }
+    }
+
     /* ANIMATIONS */
     .reveal {
       opacity: 0;
@@ -1199,8 +1316,27 @@
         </a>
         <a href="#" class="nav-cta" data-lang-id>Unduh</a><a href="#" class="nav-cta" data-lang-en>Download</a>
       </div>
+      <button class="nav-hamburger" aria-label="Menu" aria-expanded="false">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+          <line x1="4" y1="7" x2="20" y2="7"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="17" x2="20" y2="17"/>
+        </svg>
+      </button>
     </div>
   </nav>
+
+  <!-- Mobile menu overlay -->
+  <div class="mobile-menu" id="mobileMenu">
+    <a href="#video" data-lang-id data-mobile-link>Demo</a><a href="#video" data-lang-en data-mobile-link>Demo</a>
+    <a href="#cara-kerja" data-lang-id data-mobile-link>Cara kerja</a><a href="#cara-kerja" data-lang-en data-mobile-link>How it works</a>
+    <a href="#fitur" data-lang-id data-mobile-link>Fitur</a><a href="#fitur" data-lang-en data-mobile-link>Features</a>
+    <a href="#teknologi" data-lang-id data-mobile-link>Teknologi</a><a href="#teknologi" data-lang-en data-mobile-link>Technology</a>
+    <a href="https://github.com/haipradana/KawanIsyarat" target="_blank" data-mobile-link>GitHub</a>
+    <div class="lang-toggle" role="group" aria-label="Language">
+      <button type="button" data-set-lang="id" class="active">ID</button>
+      <button type="button" data-set-lang="en">EN</button>
+    </div>
+    <a href="#" class="nav-cta" data-lang-id data-mobile-link>Unduh</a><a href="#" class="nav-cta" data-lang-en data-mobile-link>Download</a>
+  </div>
 
   <!-- HERO -->
   <section class="hero">
@@ -1912,6 +2048,30 @@
         ? 'KawanIsyarat · Communication that is equal, for everyone.'
         : 'KawanIsyarat · Komunikasi yang setara, untuk siapa saja.';
     }
+
+    // Mobile hamburger menu
+    const hamburger = document.querySelector('.nav-hamburger');
+    const mobileMenu = document.getElementById('mobileMenu');
+
+    hamburger.addEventListener('click', () => {
+      const isOpen = mobileMenu.classList.toggle('open');
+      hamburger.setAttribute('aria-expanded', isOpen);
+      document.body.style.overflow = isOpen ? 'hidden' : '';
+      // Toggle icon between hamburger and X
+      hamburger.innerHTML = isOpen
+        ? '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="6" y1="6" x2="18" y2="18"/><line x1="6" y1="18" x2="18" y2="6"/></svg>'
+        : '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="4" y1="7" x2="20" y2="7"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="17" x2="20" y2="17"/></svg>';
+    });
+
+    // Close mobile menu on link click
+    mobileMenu.querySelectorAll('[data-mobile-link]').forEach(link => {
+      link.addEventListener('click', () => {
+        mobileMenu.classList.remove('open');
+        hamburger.setAttribute('aria-expanded', 'false');
+        document.body.style.overflow = '';
+        hamburger.innerHTML = '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="4" y1="7" x2="20" y2="7"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="17" x2="20" y2="17"/></svg>';
+      });
+    });
   </script>
 
   <!-- CARD STACK ANIMATION -->
