@@ -80,6 +80,16 @@ First launch downloads the Gemma 4 model (~4 GB). After that, everything runs of
 
 ---
 
+## Cactus SDK Usage Map
+
+- Gemma 4 text completion: `lib/core/services/gemma_service.dart`
+- Gemma 4 audio via raw PCM: `GemmaService.transcribeAudio`
+- Gemma 4 vision via local image paths: `ChatMessage.images`
+- Whisper Base INT8 fallback via `CactusTranscriber`: `lib/core/services/stt_service.dart`
+- Memory-aware model routing: `HearingToDeafNotifier.stopRecording`
+
+---
+
 ## Project Structure
 
 ```

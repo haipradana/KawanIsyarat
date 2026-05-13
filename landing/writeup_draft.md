@@ -1,178 +1,107 @@
-# KawanIsyarat — Hackathon Writeup Draft
-## Gemma 4 Good Hackathon · Kaggle 2026
-
----
+# KawanIsyarat: Offline Gemma 4 for BISINDO Communication
+## A local-first Android app that helps Deaf BISINDO users and hearing Indonesians meet halfway.
 
 ## Motivation
 
-My younger brother is deaf. He uses BISINDO — Bahasa Isyarat Indonesia, the sign language of Indonesia's deaf community. According to Kemenko PMK (2023), around 22.97 million Indonesians are deaf or hard of hearing. Every time he needed to visit a doctor, attend a meeting, or handle anything at a government office, I had to come along as a human interpreter. Not because he couldn't communicate — he communicates beautifully in BISINDO. But because no tool existed to bridge the gap.
+My younger brother is Deaf and uses BISINDO, the sign language of Indonesia's Deaf community. In hospitals, meetings, schools, or government offices, I often had to come with him as the interpreter. Not because he cannot communicate, but because the hearing world around him usually cannot understand BISINDO.
 
-I spent weeks researching existing solutions. Google's interpreter tools focus on ASL. Hear Me, the most prominent Indonesian sign language app, offers a passive vocabulary library — but no live recognition, no two-way communication, no AI understanding. Zero AI apps existed for BISINDO.
+Indonesia has millions of Deaf and hard-of-hearing people, yet practical AI tools for BISINDO are almost nonexistent. Most sign-language AI demos target ASL. The most visible Indonesian alternatives are vocabulary libraries, not live two-way communication tools. KawanIsyarat was built from that gap: a real Android app my brother can install and use without waiting for a server, a subscription, or me standing beside him.
 
-So I built KawanIsyarat.
+KawanIsyarat is not built to make Deaf people adapt alone; it is built so hearing people finally carry part of the communication effort too.
 
-This is not a research demo or a proof-of-concept notebook. It is a real Android application that my brother can install today and use to communicate with anyone — without needing me present.
+The core requirement was simple: communication must still work when the internet is weak, when the conversation is private, and when the user only has a mid-range Android phone.
 
----
+## What KawanIsyarat Does
 
-## The Problem
+KawanIsyarat is a two-way communication and learning app for BISINDO:
 
-The communication barrier between deaf and hearing people in Indonesia is a daily reality for millions. Indonesia has an estimated 22.97 million people with hearing disabilities (Kemenko PMK, 2023) — around 8.5% of the population:
+- **Deaf → Hearing:** camera -> MediaPipe landmarks -> 1D CNN -> BISINDO gloss -> Gemma 4 -> natural Indonesian sentence + empathy tips -> TTS.
+- **Hearing → Deaf:** microphone -> 16 kHz WAV -> raw PCM -> Gemma 4 Audio -> transcript -> Gemma 4 simplification -> short, clear Indonesian text.
+- **Learning:** alphabet and word practice with local classifiers plus Gemma 4 Vision feedback.
+- **Vocabulary help:** Gemma 4 explains difficult Indonesian words in simple language for Deaf readers.
+- **Emergency SOS:** one-tap spoken phrases such as "I am Deaf", "I need medical help", and "Please call my family".
 
-- **At hospitals**: Deaf patients must bring a hearing companion to interpret — losing privacy and independence in the most personal of situations.
-- **At schools and offices**: Critical information gets lost. Misunderstandings happen constantly.
-- **In emergencies**: When seconds matter, there is no fast way for a deaf person to communicate "I am deaf, I need medical help."
-- **With complex language**: Indonesian bureaucratic and medical vocabulary ("asuransi", "polis", "formulir", "resep") frequently goes unexplained to deaf users who grew up with a different primary language.
+This is not a chatbot wrapped in an accessibility theme. It is an accessibility workflow where Gemma 4 is the language, audio, vision, and reasoning layer behind daily communication.
 
-The hearing world has not moved to meet the deaf halfway. KawanIsyarat is built to change that — from both sides.
+## Why Gemma 4 Offline Matters
 
----
+Gemma 4 E2B INT4 is downloaded once, then runs fully offline through Cactus SDK. This matters for three reasons.
 
-## Solution Approach
+First, accessibility cannot depend on connectivity. A Deaf user may need help in a clinic, a market, a school office, or on the road. The app should not fail because mobile data is unstable.
 
-I want to especially thank my brother for participating in testing and in the demo video. Working directly with someone who uses BISINDO daily provided invaluable insights into what an accessibility app must get right — not just what is technically impressive, but what is genuinely useful when you depend on it.
+Second, privacy matters. Medical questions, family details, and identity information should not leave the phone just to become understandable.
 
-My design philosophy was the same as the Gemma Vision winner from the Gemma 3n hackathon: **one singular focus, done deeply.** But BISINDO communication has two sides, so KawanIsyarat focuses deeply on one thing: **making two-way communication between deaf and hearing people effortless and dignified.**
+Third, Gemma 4's multimodality lets one local model power the whole experience: text refinement, audio transcription, text simplification, vision coaching, and contextual empathy tips. I did not want a fragile chain of cloud APIs. I wanted one local intelligence layer that could be trusted in the field.
 
-Gemma 4 was the obvious choice — specifically because of its multimodal capabilities. One model handles audio transcription, text generation, vision feedback, and reasoning. No model swapping. No multiple downloads. One 4 GB model, downloaded once, runs forever offline.
+## Cactus SDK and Local Model Routing
 
-I chose Cactus SDK over flutter_gemma (LiteRT) after benchmarking both on a Pixel 6a. Cactus uses custom C++ with ARM SIMD kernels optimized for on-device inference — giving 3.5–4.5 tok/s with only 1.7–1.9 GB RAM usage. This matters for Android mid-range devices that are the primary phones of the communities KawanIsyarat is built for.
+KawanIsyarat targets the Cactus special technology track because the app is a local-first mobile application that routes tasks between on-device models.
 
----
+The default route is Gemma 4 E2B through Cactus:
 
-## What I Built
+- Text: gloss-to-Indonesian, vocabulary explanation, empathy tips.
+- Audio: raw PCM is passed directly to Gemma 4 with `<|audio|>`.
+- Vision: captured sign photos are passed as local image paths in the Cactus messages JSON.
 
-KawanIsyarat has three interconnected modules:
+The fallback route is Whisper Base INT8, also through Cactus. If Gemma 4 audio transcription is empty, fails, or becomes too slow on a mid-low device, the app loads Whisper on demand and uses it only for STT. After transcription, Whisper is unloaded so Gemma 4 can reclaim memory for simplification. This is not a fallback for convenience; it is a memory-aware local model routing strategy for real Android devices.
 
-### 1. Two-Way Communication
+The primary path remains Gemma-native: Gemma 4 handles audio, text simplification, empathy, vocabulary, and vision feedback. Whisper only steps in when the device needs a lighter STT route. That balance is why KawanIsyarat fits the Cactus track: Cactus is not just an inference backend here, but the layer that makes local multimodal routing practical on mobile.
 
-**Deaf → Hearing:**
-A live camera feed runs MediaPipe (33 pose landmarks + 21×2 hand landmarks = 258 floats per frame). These feed into a 1D Causal Depthwise CNN — architecture inspired by the 1st place Kaggle ASL Signs solution — which recognizes BISINDO words from a 30-frame (2-second) sliding window. Recognized gloss sequences are passed to Gemma 4, which generates a natural Indonesian sentence and then produces contextual empathy tips: short, actionable suggestions helping hearing users respond with appropriate empathy and communication style.
-
-*Example: Gloss `SAYA | PUSING | OBAT` → "Saya merasa pusing dan butuh obat." → Empathy tips: "Tanyakan apakah dia butuh diantar ke ruang kesehatan. Bicara perlahan dan hadap wajah saat merespon."*
-
-**Hearing → Deaf:**
-Voice is recorded as WAV 16kHz 16-bit mono. I strip the 44-byte WAV header and pass raw PCM directly to `cactusComplete(pcmData:)` with the user message `<|audio|>` — Gemma 4's built-in audio encoder handles transcription. The transcript is then passed back to Gemma 4 to simplify: removing filler words, shortening sentences, replacing complex vocabulary with plain Indonesian. The result is displayed as clean text for the deaf user to read.
-
-### 2. Learning Module
-
-**Gemma 4 Vision Sign Coach:** The user selects a letter or word to practice. After holding their hand sign steady for 2.2 seconds, the camera captures a photo. A Dense classifier (SIBI/BISINDO alphabet) validates the prediction. The photo path is then passed to Gemma 4 Vision via the Cactus SDK messages JSON format (`"images": [absolutePath]`), alongside a knowledge-injected prompt containing the exact BISINDO reference description for that letter. Gemma reviews the photo and provides specific feedback: *"Hampir benar! Telunjukmu perlu lebih ditekuk ke dalam."*
-
-Because Gemma 4 has no innate knowledge of BISINDO letter shapes, I built a full reference library (26 BISINDO letters + 24 SIBI letters + 6 common words) injected into every vision call. Attempt count is tracked and passed to the prompt — so tone adapts from neutral (attempt 1) to encouraging and non-judgmental (attempt 3+).
-
-**Deaf Vocabulary Helper:** A simple but powerful feature. The deaf user types any word they don't understand. Gemma 4 explains it in simple Indonesian with a practical example sentence. Designed for the vocabulary gap deaf users often experience with bureaucratic and technical terms.
-
-**Idiom Translator:** Preset idioms from a curated BISINDO list are explained instantly (no AI call). Unknown expressions typed by the user are explained via Gemma 4.
-
-**Articulation Practice:** Hearing users can practice pronouncing BISINDO-related words. They record their voice, Gemma 4 Audio transcribes it, and `feedbackArtikulasi()` provides pronunciation guidance.
-
-### 3. Emergency SOS
-
-One-tap access to six critical emergency phrases — "I am deaf", "I need medical help", "Please call my family", "I am lost", "Please call the police", "I need an interpreter" — each immediately spoken aloud via TTS. No navigation, no typing, one button.
-
----
-
-## Technical Challenges I Actually Faced
-
-This section is the most honest part of this writeup. These are not hypothetical problems — they are problems I hit, debugged, and solved.
-
-### Gemma Thinking Mode: 153 seconds → 4 seconds
-
-The biggest surprise in integrating Cactus SDK was discovering that by default, it injects `<|think|>` into the system prompt, causing Gemma 4 to enter thinking mode before responding. On a Pixel 6a, this produced response times of 60–153 seconds for simple queries — completely unusable for communication.
-
-After reading through the Cactus source code (`engine_tokenizer.cpp` → `format_gemma4_style()`), I found the flag: `enable_thinking_if_supported`. Setting this to `false` in the options JSON passed to `cactusComplete()` brought response times down to a consistent **4–9 seconds**, with 3.5–4.5 tok/s throughput. This single discovery was the difference between an unusable and usable app.
-
-### Out-of-Memory on Long Audio
-
-Gemma 4's audio encoder is memory-hungry. Testing showed that PCM data above ~256 KB causes OOM crashes on the Pixel 6a. A 7-second audio clip at 16kHz is about 229 KB — safely within limits. But users speaking longer explanations would crash the app.
-
-I implemented a 2-tap decimation guard: if raw PCM exceeds 256 KB, I average each pair of consecutive int16 samples, halving the data size. This is not a proper low-pass resample — it's a pragmatic OOM guard. The audio is effectively "sped up 2×" from Gemma's perspective, but for typical short speech this remains accurate enough for transcription. Audio under 8 seconds is sent at full 16kHz quality with no modification.
-
-### Camera Lifecycle and the Notification Shade
-
-A subtle but critical bug: the camera would permanently freeze if the user pulled down Android's notification shade or quick settings panel while recording. The root cause was using `AppLifecycleState.inactive` as the trigger to dispose the camera controller. On Android, `inactive` fires for notification shade interactions — not just app switching. Changing to `AppLifecycleState.paused` (which only fires when the app is truly backgrounded) fixed this completely.
-
-### Whisper Fallback Prompt Format
-
-When integrating Whisper via Cactus SDK as a fallback STT option, I discovered that the prompt must end with `<|notimestamps|>` — without it, the model generates timestamp tokens that get filtered from the output, resulting in empty responses. The correct prompt format is: `<|startoftranscript|><|id|><|transcribe|><|notimestamps|>`. This took considerable debugging to identify.
-
-### flutter_gemma vs Cactus SDK Decision
-
-I originally started with flutter_gemma (LiteRT, MediaPipe GenAI) — it uses ~676 MB GPU RAM and achieves ~3.2 second responses via GPU acceleration. However, it requires the proprietary `.litertlm` format and provides less control over inference parameters. Cactus SDK, while requiring more setup (FFI bindings, zip extraction, path management), gave me full control: `n_ctx`, `memory_f32`, `batch_size`, `n_threads`, and the ability to pass PCM audio and image paths directly. The tradeoff of higher RAM usage (~1.9 GB) was worth the flexibility. I kept the flutter_gemma implementation commented in the codebase as a fallback for lower-end devices.
-
----
+On a Pixel 6a, Gemma 4 via Cactus uses about 1.7-1.9 GB RAM at runtime and produces about 3.5-4.5 tokens/second in my app settings. I tuned Cactus with `n_ctx: 512`, `memory_f32: false`, `batch_size: 1`, and `n_threads: 4` to keep enough headroom for camera, audio, and Flutter UI.
 
 ## Architecture
 
 ```
 KawanIsyarat
-├── Communication Layer
-│   ├── Deaf → Hearing:  Camera → MediaPipe (258 floats/frame) → 1D CNN → Gloss → Gemma 4 Text → Sentence + Empathy Tips → TTS
-│   └── Hearing → Deaf:  Mic → WAV → PCM → Gemma 4 Audio → Transcript → Gemma 4 Simplify → Clean Text
-│
-├── Learning Layer
-│   ├── Sign Coach:       Camera capture → Dense Classifier → Gemma 4 Vision (knowledge-injected) → Feedback
-│   ├── Vocab Helper:     Text input → Gemma 4 Text → Simple explanation + example
-│   ├── Idiom Translator: Preset (instant) or Gemma 4 (custom query)
-│   └── Articulation:     Voice → Gemma 4 Audio → Transcript → Gemma 4 feedback
-│
-└── Emergency Layer
-    └── SOS:              One-tap → TTS phrase → Immediate audio output
++-- Communication
+|   +-- Deaf -> Hearing: Camera -> MediaPipe -> 1D CNN -> Gloss -> Gemma 4 -> Sentence + Empathy Tips -> TTS
+|   +-- Hearing -> Deaf: Mic -> PCM -> Gemma 4 Audio -> Transcript -> Gemma 4 Simplify -> Text
++-- Learning
+|   +-- Sign Coach: Camera capture -> classifier -> Gemma 4 Vision feedback
+|   +-- Vocabulary Helper: difficult word -> Gemma 4 simple explanation
+|   +-- Idiom Helper: curated list or Gemma 4 explanation
+|   +-- Articulation: voice -> Gemma 4 transcription -> pronunciation feedback
++-- Emergency
+    +-- One-tap TTS for critical phrases
 ```
 
-**ML Stack:**
-| Component | Detail |
-|---|---|
-| LLM | Gemma 4 E2B INT4 via Cactus SDK (~4 GB, ~1.9 GB RAM at runtime) |
-| Audio STT | Gemma 4 Audio Encoder (primary) · Whisper Base INT8 via Cactus (fallback) |
-| Gesture recognition | MediaPipe pose (33 lm) + hand (21×2 lm) → 1D CNN, 16 BISINDO classes |
-| Alphabet recognition | Dense classifier: SIBI 24 classes + BISINDO 26 classes |
-| Framework | Flutter + Riverpod + GoRouter |
-| State management | `StateNotifierProvider` with cross-provider `Ref` injection |
+The sign-recognition model uses MediaPipe pose and hand landmarks. For BISINDO words, each 30-frame window is converted into normalized landmark features and classified by a 1D causal depthwise CNN inspired by the 1st place Kaggle ASL Signs solution. The current prototype supports 16 BISINDO classes and reached 86.2% leave-one-signer-out test accuracy in my experiments.
 
----
+For alphabet learning, local Dense classifiers validate SIBI and BISINDO letters first. Gemma 4 Vision then acts as a coach, not as the only judge. Because Gemma 4 does not inherently know the exact BISINDO/SIBI hand shapes, every vision prompt injects my reference library: 26 BISINDO letters, 24 SIBI letters, and common word signs. This makes feedback grounded and specific instead of generic.
+
+## Engineering Challenges
+
+The hardest bug was Gemma 4 thinking mode. Cactus enabled thinking by default through `enable_thinking_if_supported`, which made simple responses take 60-153 seconds on a Pixel 6a. After tracing the Cactus formatting path, I disabled that flag in the completion options. Response time dropped to about 4-9 seconds, which changed the app from impressive-but-unusable into something that could support real conversation.
+
+Gemma 4 audio also required memory discipline. Audio above roughly 256 KB raw PCM could trigger OOM on the Pixel 6a. I added a guard that keeps short recordings at full 16 kHz quality, but decimates longer PCM buffers before sending them to Gemma 4. It is a pragmatic mobile safeguard, not a perfect resampler, but it prevents crashes during real use.
+
+Whisper fallback had its own trap: the prompt must end with `<|notimestamps|>`. Without that token, Whisper generated timestamp tokens that were filtered out, producing empty results. The working Indonesian prompt is `<|startoftranscript|><|id|><|transcribe|><|notimestamps|>`.
+
+I also fixed an Android camera lifecycle issue where pulling down the notification shade froze the camera. The cause was disposing the camera on `AppLifecycleState.inactive`; switching disposal to `paused` fixed it because notification shade interactions are not true backgrounding.
 
 ## Impact
 
-KawanIsyarat targets four hackathon prize tracks simultaneously because it genuinely addresses all four:
+KawanIsyarat is strongest for **Digital Equity & Inclusivity**, with a serious fit for **Future of Education** and the **Cactus** prize.
 
-1. **Digital Equity & Inclusivity** — 22.97 million Indonesians with hearing disabilities (Kemenko PMK, 2023), zero dedicated AI tools for BISINDO before this.
-2. **Future of Education** — Sign Coach with AI vision feedback, vocabulary helper, alphabet/word learning for both deaf and hearing.
-3. **Cactus SDK Bonus Prize** — Gemma 4 E2B deployed on-device via Cactus custom inference engine.
-4. **Main Track** — Gemma 4 multimodal showcase: one model handling audio, vision, and text reasoning.
+For Deaf users, the impact is independence: asking for help, explaining symptoms, handling forms, learning new words, or communicating in public without always needing a hearing family member beside them. In medical and government settings, this also means privacy. A Deaf person should not need a sibling or parent to interpret every personal detail just because the system around them cannot understand BISINDO.
 
-**KawanIsyarat is not just a tool for deaf people.** It is also designed to help hearing people learn BISINDO — breaking the wall from both directions. When both sides move toward each other, the wall comes down.
+For hearing users, KawanIsyarat changes the burden of communication. Instead of expecting Deaf Indonesians to adapt alone, the app helps hearing people understand, respond more clearly, and learn basic BISINDO. The empathy tips are intentionally simple because inclusion is not only translation; it is also how people respond after they understand.
 
-Today it is an Android app. The vision is an accessibility layer: a plugin for WhatsApp video calls, Zoom, Google Meet — real-time sign language subtitles, deaf-friendly text simplification, anywhere. A Web SDK and Android Accessibility Service overlay are the natural next steps.
+For learners, the app goes beyond a passive dictionary. The Sign Coach, vocabulary helper, idiom helper, and articulation module make KawanIsyarat a practical learning companion for both Deaf and hearing users.
 
----
+For low-connectivity communities, the offline design is essential. After the first model download, the core experience runs locally: no server, no subscription, and no private conversation leaving the phone.
 
-## Comparison to Existing Solutions
+My goal is not to replace human interpreters. The goal is to make everyday communication less fragile and less dependent on whether an interpreter, internet connection, or expensive device is available.
 
-| | Google Interpreter | Hear Me | KawanIsyarat |
-|---|---|---|---|
-| Sign language | ASL | BISINDO (passive library) | **BISINDO (live, active)** |
-| Live recognition | ❌ | ❌ | ✅ Real-time CNN |
-| Two-way communication | ❌ | ❌ | ✅ Deaf ↔ Hearing |
-| AI learning coach | ❌ | ❌ | ✅ Gemma 4 Vision |
-| Vocabulary helper | ❌ | ❌ | ✅ Gemma 4 Text |
-| Empathy suggestions | ❌ | ❌ | ✅ Contextual tips |
-| Fully offline | ❌ | ❌ | ✅ |
-| Personal story | — | — | ✅ Developer's deaf brother |
+KawanIsyarat shows what local developers can build for a specific community today when Gemma 4 can run offline on a phone.
 
----
+## Project Links
 
-## Closing
+- Landing page: https://kawanisyarat.pradanayahya.com
+- Public code repository: https://github.com/haipradana/KawanIsyarat
 
-Google is building SignGemma for ASL. But 22.97 million deaf and hard-of-hearing Indonesians cannot wait for a global product to localize.
+## Built With
 
-KawanIsyarat is what that future looks like — for BISINDO, today, on a $300 Android phone, fully offline, built by someone who needs it in their own family.
+Gemma 4 E2B INT4, Cactus SDK, Whisper Base INT8 fallback, Flutter, Riverpod, MediaPipe, TFLite, Hive, and Android.
 
-The open Gemma ecosystem made this possible. I hope this demonstrates what local developers can build when given the right foundation.
-
-— Pradana Yahya Abdillah, Universitas Gadjah Mada
-
----
-
-*Built with Gemma 4 E2B · Cactus SDK · Flutter · MediaPipe · TFLite*
-*Submitted to Gemma 4 Good Hackathon · Kaggle · May 2026*
+Submitted to the Gemma 4 Good Hackathon, Kaggle 2026.

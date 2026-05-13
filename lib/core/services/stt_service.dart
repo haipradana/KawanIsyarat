@@ -5,7 +5,7 @@ import '../ffi/cactus_wrapper.dart';
 import 'model_manager.dart';
 
 /// Real Cactus-powered Whisper STT (Speech-to-Text) service.
-/// Uses on-device Whisper Tiny ID model for Indonesian speech transcription.
+/// Uses on-device Whisper Base INT8 for Indonesian speech transcription.
 class SttService {
   static final SttService _instance = SttService._internal();
   factory SttService() => _instance;
