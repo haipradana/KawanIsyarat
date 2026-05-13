@@ -97,8 +97,9 @@ KawanIsyarat shows what local developers can build for a specific community toda
 
 ## Project Links
 
-- Landing page: https://kawanisyarat.pradanayahya.com
+- Landing page / live demo: https://kawanisyarat.pradanayahya.com
 - Public code repository: https://github.com/haipradana/KawanIsyarat
+- Demo video: Soon
 
 ## Built With
 

@@ -2,7 +2,15 @@
 
 Two-way communication app between Deaf BISINDO users and hearing Indonesians. Runs fully offline after the initial model download — no internet, no server, no data leaving the device.
 
-Built for the [Gemma 4 Good Hackathon (Kaggle, 2026)](https://www.kaggle.com/competitions/google-gemma-4-good-hackathon).
+Built for the [Gemma 4 Good Hackathon (Kaggle, 2026)](https://www.kaggle.com/competitions/gemma-4-good-hackathon).
+
+---
+
+## Project Links
+
+- Landing page / live demo: https://kawanisyarat.pradanayahya.com
+- Public code repository: https://github.com/haipradana/KawanIsyarat
+- Demo video: SOON
 
 ---
 
