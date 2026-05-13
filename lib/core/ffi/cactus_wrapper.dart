@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:isolate';
-import 'dart:typed_data';
 import 'package:flutter/foundation.dart';
 import 'cactus.dart';
 
@@ -184,7 +183,7 @@ class CactusModel {
             pcmData: audio);
       });
 
-      debugPrint('[CactusModel] Raw response: ${resultJson.length > 500 ? '${resultJson.substring(0, 500)}...' : resultJson}');
+      debugPrint('[CactusModel] Response JSON received (${resultJson.length} chars)');
       final parsed = jsonDecode(resultJson) as Map<String, dynamic>;
       if (parsed.containsKey('thinking')) {
         debugPrint('[CactusModel] ⚠️ THINKING DETECTED: ${(parsed['thinking'] as String?)?.substring(0, 100)}...');
@@ -272,7 +271,7 @@ class CactusTranscriber {
         return cactusTranscribe(handle, audioPath, prompt, options, null, null);
       });
 
-      debugPrint('[CactusTranscriber] Raw JSON: $resultJson');
+      debugPrint('[CactusTranscriber] Response JSON received (${resultJson.length} chars)');
       final parsed = jsonDecode(resultJson) as Map<String, dynamic>;
       return CactusTranscriptionResult.fromJson(parsed);
     } catch (e) {

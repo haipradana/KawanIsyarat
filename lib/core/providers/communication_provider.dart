@@ -683,7 +683,7 @@ class HearingToDeafNotifier extends StateNotifier<HearingToDeafState> {
           debugPrint('[STT] [GEMMA-AUDIO] Trying Gemma 4 audio (${pcmData.length} PCM bytes)...');
 
           final gemmaResult = await _gemmaService.transcribeAudio(pcmData);
-          debugPrint('[STT] [GEMMA-AUDIO] Result: "$gemmaResult"');
+          debugPrint('[STT] [GEMMA-AUDIO] Result length: ${gemmaResult.length} chars');
 
           if (gemmaResult.isNotEmpty) {
             transcription = gemmaResult;
@@ -708,7 +708,7 @@ class HearingToDeafNotifier extends StateNotifier<HearingToDeafState> {
           }
           debugPrint('[STT] [FALLBACK] Transcribing via Whisper...');
           transcription = await _sttService.transcribeFile(audioPath);
-          debugPrint('[STT] [FALLBACK] Whisper result: "$transcription"');
+          debugPrint('[STT] [FALLBACK] Whisper result length: ${transcription.length} chars');
         } else {
           debugPrint('[STT] [FALLBACK] Whisper not downloaded — no fallback available');
         }
@@ -737,7 +737,7 @@ class HearingToDeafNotifier extends StateNotifier<HearingToDeafState> {
       // Jika pakai Gemma audio, bisa skip simplify (sudah 1 model) — tapi tetap run untuk konsistensi.
       debugPrint('[STT] Simplifying via Gemma...');
       final summary = await _gemmaService.simplifyForDeaf(transcription);
-      debugPrint('[STT] Simplified: "$summary"');
+      debugPrint('[STT] Simplified length: ${summary.length} chars');
 
       if (mounted) {
         state = state.copyWith(

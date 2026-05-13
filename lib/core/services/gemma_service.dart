@@ -501,7 +501,7 @@ Jawab HANYA dengan teks transkripsi, tanpa penjelasan atau komentar.
 
       if (response.success && response.text.isNotEmpty) {
         final cleaned = _cleanResponse(response.text);
-        debugPrint('[GemmaService] transcribeAudio OK: "$cleaned" '
+        debugPrint('[GemmaService] transcribeAudio OK: ${cleaned.length} chars, '
             '(${response.decodeTps.toStringAsFixed(1)} tok/s, '
             '${response.totalTimeMs.toStringAsFixed(0)}ms)');
         return cleaned;
@@ -544,7 +544,7 @@ Jawab HANYA dengan teks transkripsi, tanpa penjelasan atau komentar.
 
       if (response.success && response.text.isNotEmpty) {
         final cleaned = _cleanResponse(response.text);
-        debugPrint('[GemmaService] transcribeAndSimplify OK: "$cleaned" '
+        debugPrint('[GemmaService] transcribeAndSimplify OK: ${cleaned.length} chars, '
             '(${response.decodeTps.toStringAsFixed(1)} tok/s, '
             '${response.totalTimeMs.toStringAsFixed(0)}ms)');
         return cleaned;
@@ -638,7 +638,7 @@ Jawab HANYA dengan teks transkripsi, tanpa penjelasan atau komentar.
       cropH = ((bottomN - topN) * imgH).round().clamp(1, imgH - cropY);
 
       debugPrint('[GemmaService] Crop (square) to hand bbox: '
-          '${cropX},${cropY} ${cropW}x$cropH px '
+          '$cropX,$cropY ${cropW}x$cropH px '
           '(bbox ${handBbox.width.toStringAsFixed(2)}x${handBbox.height.toStringAsFixed(2)})');
     } else {
       // Fallback: square center-crop 70%, bias ke atas 10% (tangan biasanya upper)

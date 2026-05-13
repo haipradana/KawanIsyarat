@@ -1,5 +1,4 @@
 import 'dart:io';
-import 'dart:typed_data';
 import 'package:flutter/foundation.dart';
 import '../ffi/cactus_wrapper.dart';
 import 'model_manager.dart';
@@ -91,7 +90,7 @@ class SttService {
     try {
       debugPrint('[SttService] Calling cactus transcribeFile($audioPath)...');
       final result = await _transcriber!.transcribeFile(audioPath);
-      debugPrint('[SttService] Result: success=${result.success}, text="${result.text}", error=${result.error}, segments=${result.segments.length}');
+      debugPrint('[SttService] Result: success=${result.success}, textLength=${result.text.length}, error=${result.error}, segments=${result.segments.length}');
 
       if (result.success && result.text.isNotEmpty) {
         return result.text.trim();

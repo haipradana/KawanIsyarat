@@ -114,6 +114,7 @@ lib/
 │   │   ├── gemma_service.dart         Gemma 4: text, audio, vision, empathy
 │   │   ├── gesture_service.dart       1D CNN: BISINDO word recognition
 │   │   ├── mediapipe_service.dart     MediaPipe: pose + hand landmarks
+│   │   ├── alphabet_service.dart      Shared alphabet helper/service
 │   │   ├── sibi_alphabet_service.dart SIBI alphabet (24 classes, 1 hand)
 │   │   ├── bisindo_alphabet_service.dart BISINDO alphabet (26 classes, 2 hands)
 │   │   ├── model_manager.dart         Model download + path management
@@ -127,14 +128,17 @@ lib/
 │       ├── learning_progress_provider.dart Per-module completion tracking
 │       ├── persona_provider.dart      User persona (Deaf / Hearing)
 │       └── auth_provider.dart         Simple onboarding auth state
-└── features/
-    ├── onboarding/     Landing, persona selection, AI init screen
-    ├── home/           Dashboard + word-of-day card
-    ├── communication/  Deaf↔Hearing screens + widgets
-    ├── learning/       Hub, kata, alfabet, idiom, artikulasi, kamus
-    ├── history/        Session history
-    ├── settings/       Model management, app settings
-    └── emergency/      SOS quick-sign screen
+├── features/
+│   ├── onboarding/     Landing, persona selection, AI init screen
+│   ├── home/           Dashboard + word-of-day card
+│   ├── communication/  Deaf↔Hearing screens + widgets
+│   ├── learning/       Hub, kata, alfabet, idiom, artikulasi, kamus
+│   ├── history/        Session history
+│   ├── settings/       Model management, app settings
+│   └── emergency/      SOS quick-sign screen
+└── shared/
+    ├── models/         Conversation, gloss result, and persona models
+    └── widgets/        Shared app bar, bottom nav, and skeleton painter
 ```
 
 ---

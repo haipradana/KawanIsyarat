@@ -195,6 +195,7 @@ class ModelManager {
   /// Download a single file directly (no zip extraction).
   /// Supports resume — if a partial file exists, continues from where it left off.
   /// Returns the local path to the downloaded file.
+  // ignore: unused_element
   Future<String> _downloadFile(
     String url,
     String destPath, {
