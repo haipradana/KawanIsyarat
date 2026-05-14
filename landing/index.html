@@ -351,15 +351,40 @@
     }
 
     /* Staggered delays for links */
-    .mobile-menu.open a:nth-child(2) { transition-delay: 0.05s; }
-    .mobile-menu.open a:nth-child(3) { transition-delay: 0.1s; }
-    .mobile-menu.open a:nth-child(4) { transition-delay: 0.15s; }
-    .mobile-menu.open a:nth-child(5) { transition-delay: 0.2s; }
-    .mobile-menu.open a:nth-child(6) { transition-delay: 0.25s; }
-    .mobile-menu.open .lang-toggle { transition-delay: 0.3s; opacity: 1; transform: translateY(0); }
-    .mobile-menu.open .nav-cta { transition-delay: 0.35s; opacity: 1; transform: translateY(0); }
+    .mobile-menu.open a:nth-child(2) {
+      transition-delay: 0.05s;
+    }
 
-    .mobile-menu .lang-toggle, .mobile-menu .nav-cta {
+    .mobile-menu.open a:nth-child(3) {
+      transition-delay: 0.1s;
+    }
+
+    .mobile-menu.open a:nth-child(4) {
+      transition-delay: 0.15s;
+    }
+
+    .mobile-menu.open a:nth-child(5) {
+      transition-delay: 0.2s;
+    }
+
+    .mobile-menu.open a:nth-child(6) {
+      transition-delay: 0.25s;
+    }
+
+    .mobile-menu.open .lang-toggle {
+      transition-delay: 0.3s;
+      opacity: 1;
+      transform: translateY(0);
+    }
+
+    .mobile-menu.open .nav-cta {
+      transition-delay: 0.35s;
+      opacity: 1;
+      transform: translateY(0);
+    }
+
+    .mobile-menu .lang-toggle,
+    .mobile-menu .nav-cta {
       opacity: 0;
       transform: translateY(10px);
       transition: opacity 0.4s ease, transform 0.4s cubic-bezier(0.2, 0.8, 0.2, 1);
@@ -1252,7 +1277,9 @@
 
     /* MOBILE FIXES */
     @media (max-width: 720px) {
-      .container, .container-narrow {
+
+      .container,
+      .container-narrow {
         padding: 0 20px;
       }
 
@@ -1434,8 +1461,11 @@
         <a href="#" class="nav-cta" data-lang-id>Unduh</a><a href="#" class="nav-cta" data-lang-en>Download</a>
       </div>
       <button class="nav-hamburger" aria-label="Menu" aria-expanded="false">
-        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
-          <line x1="4" y1="7" x2="20" y2="7"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="17" x2="20" y2="17"/>
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+          stroke-linecap="round">
+          <line x1="4" y1="7" x2="20" y2="7" />
+          <line x1="4" y1="12" x2="20" y2="12" />
+          <line x1="4" y1="17" x2="20" y2="17" />
         </svg>
       </button>
     </div>
@@ -1444,18 +1474,25 @@
   <!-- Mobile menu overlay -->
   <div class="mobile-menu" id="mobileMenu">
     <button class="mobile-menu-close" aria-label="Close menu">
-      <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="6" y1="6" x2="18" y2="18"/><line x1="6" y1="18" x2="18" y2="6"/></svg>
+      <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+        stroke-linecap="round">
+        <line x1="6" y1="6" x2="18" y2="18" />
+        <line x1="6" y1="18" x2="18" y2="6" />
+      </svg>
     </button>
     <a href="#video" data-lang-id data-mobile-link>Demo</a><a href="#video" data-lang-en data-mobile-link>Demo</a>
-    <a href="#cara-kerja" data-lang-id data-mobile-link>Cara kerja</a><a href="#cara-kerja" data-lang-en data-mobile-link>How it works</a>
+    <a href="#cara-kerja" data-lang-id data-mobile-link>Cara kerja</a><a href="#cara-kerja" data-lang-en
+      data-mobile-link>How it works</a>
     <a href="#fitur" data-lang-id data-mobile-link>Fitur</a><a href="#fitur" data-lang-en data-mobile-link>Features</a>
-    <a href="#teknologi" data-lang-id data-mobile-link>Teknologi</a><a href="#teknologi" data-lang-en data-mobile-link>Technology</a>
+    <a href="#teknologi" data-lang-id data-mobile-link>Teknologi</a><a href="#teknologi" data-lang-en
+      data-mobile-link>Technology</a>
     <a href="https://github.com/haipradana/KawanIsyarat" target="_blank" data-mobile-link>GitHub</a>
     <div class="lang-toggle" role="group" aria-label="Language">
       <button type="button" data-set-lang="id" class="active">ID</button>
       <button type="button" data-set-lang="en">EN</button>
     </div>
-    <a href="#" class="nav-cta" data-lang-id data-mobile-link>Unduh</a><a href="#" class="nav-cta" data-lang-en data-mobile-link>Download</a>
+    <a href="#" class="nav-cta" data-lang-id data-mobile-link>Unduh</a><a href="#" class="nav-cta" data-lang-en
+      data-mobile-link>Download</a>
   </div>
 
   <!-- HERO -->
@@ -1515,17 +1552,17 @@
         <div class="card-stack-wrap reveal">
           <div>
             <div class="card-stack" id="cardStack">
-              <div class="card" data-index="0"><img src="images/layout0.png" alt="KawanIsyarat screen 1"
+              <div class="card" data-index="0"><img src="images/layout0.webp" alt="KawanIsyarat screen 1"
                   loading="lazy" /></div>
-              <div class="card" data-index="1"><img src="images/layout1.png" alt="KawanIsyarat screen 2"
+              <div class="card" data-index="1"><img src="images/layout1.webp" alt="KawanIsyarat screen 2"
                   loading="lazy" /></div>
-              <div class="card" data-index="2"><img src="images/layout2.png" alt="KawanIsyarat screen 3"
+              <div class="card" data-index="2"><img src="images/layout2.webp" alt="KawanIsyarat screen 3"
                   loading="lazy" /></div>
-              <div class="card" data-index="3"><img src="images/layout3.png" alt="KawanIsyarat screen 4"
+              <div class="card" data-index="3"><img src="images/layout3.webp" alt="KawanIsyarat screen 4"
                   loading="lazy" /></div>
-              <div class="card" data-index="4"><img src="images/layout4.png" alt="KawanIsyarat screen 5"
+              <div class="card" data-index="4"><img src="images/layout4.webp" alt="KawanIsyarat screen 5"
                   loading="lazy" /></div>
-              <div class="card" data-index="5"><img src="images/layout5.png" alt="KawanIsyarat screen 6"
+              <div class="card" data-index="5"><img src="images/layout5.webp" alt="KawanIsyarat screen 6"
                   loading="lazy" /></div>
             </div>
             <div class="card-dots" id="cardDots">
