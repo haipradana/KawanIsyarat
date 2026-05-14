@@ -166,3 +166,5 @@ lib/
 ## License
 
 MIT
+
+Gemma is a trademark of Google LLC.
