@@ -10,7 +10,7 @@ Built for the [Gemma 4 Good Hackathon (Kaggle, 2026)](https://www.kaggle.com/com
 
 - Landing page / live demo: https://kawanisyarat.pradanayahya.com
 - Public code repository: https://github.com/haipradana/KawanIsyarat
-- Demo video: SOON
+- Demo video: https://youtu.be/eiXdkpwouBY
 
 ---
 
