@@ -143,6 +143,14 @@ lib/
 
 ---
 
+## Datasets
+
+- [BISINDO Alphabet](https://www.kaggle.com/datasets/pradanayahyaabdillah/bisindo-alphabet) — BISINDO alphabet training/evaluation data
+- [BISINDO Sign Dataset](https://www.kaggle.com/datasets/pradanayahyaabdillah/bisindo-sign-dataset) — BISINDO word-level sign dataset
+- [SIBI Training](https://www.kaggle.com/datasets/pradanayahyaabdillah/sibi-training) — SIBI alphabet training data
+
+---
+
 ## ML Models
 
 ### BISINDO Gesture (1D CNN)
